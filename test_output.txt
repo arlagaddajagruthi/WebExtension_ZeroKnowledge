@@ -1,0 +1,65 @@
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90mC:/Users/kondu/OneDrive/Desktop/B.TECH/6 SEM/Software Engineering/Web_Extension[39m
+
+stderr | src/pages/vault/VaultHome.test.tsx > VaultHome > should render credentials list
+VaultStore: Cannot persist, no encryption key
+[90mstdout[2m | src/pages/vault/VaultHome.test.tsx[2m > [22m[2mVaultHome[2m > [22m[2mshould render credentials list
+[22m[39mSyncService: Starting sync...
+
+
+[90mstdout[2m | src/pages/vault/VaultHome.test.tsx[2m > [22m[2mVaultHome[2m > [22m[2mshould render credentials list
+[22m[39mVaultHome: Render { credentialsLength: [33m1[39m, search: [32m''[39m }
+
+stderr | src/pages/vault/VaultHome.test.tsx > VaultHome > should filter credentials by search
+VaultStore: Cannot persist, no encryption key
+
+[90mstdout[2m | src/pages/vault/VaultHome.test.tsx[2m > [22m[2mVaultHome[2m > [22m[2mshould filter credentials by search
+[22m[39mSyncService: Starting sync...
+
+stderr | src/pages/vault/VaultHome.test.tsx > VaultHome > should copy password to clipboard
+VaultStore: Cannot persist, no encryption key
+[90mstdout[2m | src/pages/vault/VaultHome.test.tsx[2m > [22m[2mVaultHome[2m > [22m[2mshould copy password to clipboard
+[22m[39mSyncService: Starting sync...
+
+
+ [31mΓ¥»[39m src/pages/vault/VaultHome.test.tsx [2m([22m[2m3 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 58[2mms[22m[39m
+     [32mΓ£ô[39m should render credentials list[32m 49[2mms[22m[39m
+[31m     [31m├ù[31m should filter credentials by search[39m[32m 5[2mms[22m[39m
+[31m     [31m├ù[31m should copy password to clipboard[39m[32m 2[2mms[22m[39m
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ» Failed Tests 2 ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»
+
+ FAIL  src/pages/vault/VaultHome.test.tsx > VaultHome > should filter credentials by search
+TypeError: Cannot redefine property: clipboard
+ Γ¥» attachClipboardStubToView ../../../6%20SEM/Software%20Engineering/Web_Extension/node_modules/@testing-library/user-event/dist/esm/utils/dataTransfer/Clipboard.js:108:12
+ Γ¥» Object.setupMain [as setup] ../../../6%20SEM/Software%20Engineering/Web_Extension/node_modules/@testing-library/user-event/dist/esm/setup/setup.js:56:5
+ Γ¥» src/pages/vault/VaultHome.test.tsx:53:32
+     51| 
+     52|     it('should filter credentials by search', async () => {
+     53|         const user = userEvent.setup();
+       |                                ^
+     54|         render(
+     55|             <BrowserRouter>
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[1/2]ΓÄ»
+
+ FAIL  src/pages/vault/VaultHome.test.tsx > VaultHome > should copy password to clipboard
+TypeError: Cannot redefine property: clipboard
+ Γ¥» attachClipboardStubToView ../../../6%20SEM/Software%20Engineering/Web_Extension/node_modules/@testing-library/user-event/dist/esm/utils/dataTransfer/Clipboard.js:108:12
+ Γ¥» Object.setupMain [as setup] ../../../6%20SEM/Software%20Engineering/Web_Extension/node_modules/@testing-library/user-event/dist/esm/setup/setup.js:56:5
+ Γ¥» src/pages/vault/VaultHome.test.tsx:71:32
+     69| 
+     70|     it('should copy password to clipboard', async () => {
+     71|         const user = userEvent.setup();
+       |                                ^
+     72|         render(
+     73|             <BrowserRouter>
+
+ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»ΓÄ»[2/2]ΓÄ»
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (3)[39m
+[2m   Start at [22m 23:37:54
+[2m   Duration [22m 1.29s[2m (transform 200ms, setup 179ms, import 377ms, tests 58ms, environment 464ms)[22m
+
