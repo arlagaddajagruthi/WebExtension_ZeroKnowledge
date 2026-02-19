@@ -65,6 +65,11 @@ chrome.runtime.onMessage.addListener((
             sendResponse({ success: true });
             break;
 
+        case MessageType.BLACKLIST_DOMAIN:
+            handleBlacklistDomain(message.data);
+            sendResponse({ success: true });
+            break;
+
         default:
             console.log('ZeroVault: Unknown message type:', message.type);
     }
@@ -182,6 +187,11 @@ async function handleSaveCredential(data: { url: string; username: string; passw
     credentials.push(newCredential);
     await saveEncryptedCredentials(credentials);
     console.log('ZeroVault: Credential saved');
+}
+
+async function handleBlacklistDomain(data: { domain: string }) {
+    if (!data?.domain) return;
+    await addToBlacklist(data.domain);
 }
 
 // Auto-lock timer

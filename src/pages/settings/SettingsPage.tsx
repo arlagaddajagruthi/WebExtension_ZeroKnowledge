@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Shield, Lock, Moon, Monitor, Trash2, Database, Info, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Shield, Lock, Moon, Monitor, Trash2, Database, Info, ChevronRight, Fingerprint } from 'lucide-react';
 import { Button, Card, cn } from '../../components/ui';
 import { useAuthStore } from '../../store/authStore';
 
@@ -23,6 +23,7 @@ const SettingsPage = () => {
                     <Card className="divide-y overflow-hidden">
                         <SettingsItem icon={<Shield className="w-4 h-4" />} label="Security Dashboard" onClick={() => navigate('/settings/security')} />
                         <SettingsItem icon={<Shield className="w-4 h-4" />} label="Password Audit" onClick={() => navigate('/security-audit')} />
+                        <SettingsItem icon={<Fingerprint className="w-4 h-4" />} label="Biometric Authentication" onClick={() => navigate('/settings/biometric')} />
                         <SettingsItem icon={<Database className="w-4 h-4" />} label="Sync & Data" onClick={() => navigate('/settings/sync')} />
                         <SettingsItem icon={<Lock className="w-4 h-4" />} label="Change Master Password" onClick={() => navigate('/settings/password')} />
                     </Card>
@@ -33,6 +34,7 @@ const SettingsPage = () => {
                     <Card className="divide-y overflow-hidden">
                         <SettingsItem icon={<Moon className="w-4 h-4" />} label="Appearance" onClick={() => navigate('/settings/appearance')} />
                         <SettingsItem icon={<Monitor className="w-4 h-4" />} label="Auto-lock Timer" value="15 min" onClick={() => navigate('/settings/autolock')} />
+                        <SettingsItem icon={<Database className="w-4 h-4" />} label="Import Vault" onClick={() => navigate('/settings/import')} />
                         <SettingsItem icon={<Database className="w-4 h-4" />} label="Export Vault" onClick={() => navigate('/settings/export')} />
                     </Card>
                 </div>

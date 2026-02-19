@@ -15,6 +15,8 @@ import ChangePassword from '../../pages/settings/subpages/ChangePassword';
 import AppearanceSettings from '../../pages/settings/subpages/AppearanceSettings';
 import AutoLockSettings from '../../pages/settings/subpages/AutoLockSettings';
 import ExportVault from '../../pages/settings/subpages/ExportVault';
+import ImportVault from '../../pages/settings/subpages/ImportVault';
+import BiometricSetup from '../../pages/settings/subpages/BiometricSetup';
 import { useAuthStore } from '../../store/authStore';
 
 const App = () => {
@@ -62,6 +64,8 @@ const App = () => {
                     <Route path="/settings/appearance" element={isAuthenticated ? <AppearanceSettings /> : <Navigate to="/login" />} />
                     <Route path="/settings/autolock" element={isAuthenticated ? <AutoLockSettings /> : <Navigate to="/login" />} />
                     <Route path="/settings/export" element={isAuthenticated ? <ExportVault /> : <Navigate to="/login" />} />
+                    <Route path="/settings/import" element={isAuthenticated ? <ImportVault /> : <Navigate to="/login" />} />
+                    <Route path="/settings/biometric" element={isAuthenticated ? <BiometricSetup /> : <Navigate to="/login" />} />
                 </Routes>
             </div>
         </Router>
