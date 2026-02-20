@@ -93,6 +93,7 @@ const Register = () => {
             setIsLoading(false);
         }
     };
+
     const getPasswordStrength = (pwd: string) => {
         if (!pwd) return 0;
         let score = 0;

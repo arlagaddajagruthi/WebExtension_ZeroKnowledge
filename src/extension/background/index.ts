@@ -203,9 +203,7 @@ async function getAutoLockTimeout(): Promise<number> {
         const result = await chrome.storage.local.get('autoLockTimeout');
         const timeout = result.autoLockTimeout;
         if (timeout === -1) return -1; // Never lock
-        const safeTimeout = Number(timeout) || 15;
-        return safeTimeout * 60 * 1000;
- // Convert minutes to ms
+        return (timeout || 15) * 60 * 1000; // Convert minutes to ms
     } catch (e) {
         return DEFAULT_AUTO_LOCK_TIMEOUT;
     }
@@ -231,7 +229,7 @@ const BLACKLIST_KEY = 'zerovault_blacklist';
 async function checkBlacklist(url: string): Promise<boolean> {
     try {
         const result = await chrome.storage.local.get(BLACKLIST_KEY);
-        const blacklist: string[] = (result[BLACKLIST_KEY] as string[]) || [];
+        const blacklist: string[] = result[BLACKLIST_KEY] || [];
         const domain = new URL(url).hostname.replace('www.', '');
         return blacklist.some(blacklisted => domain.includes(blacklisted));
     } catch (e) {
@@ -242,7 +240,7 @@ async function checkBlacklist(url: string): Promise<boolean> {
 async function addToBlacklist(domain: string): Promise<void> {
     try {
         const result = await chrome.storage.local.get(BLACKLIST_KEY);
-        const blacklist: string[] = (result[BLACKLIST_KEY] as string[]) || [];
+        const blacklist: string[] = result[BLACKLIST_KEY] || [];
         if (!blacklist.includes(domain)) {
             blacklist.push(domain);
             await chrome.storage.local.set({ [BLACKLIST_KEY]: blacklist });
@@ -256,7 +254,7 @@ async function addToBlacklist(domain: string): Promise<void> {
 async function removeFromBlacklist(domain: string): Promise<void> {
     try {
         const result = await chrome.storage.local.get(BLACKLIST_KEY);
-        const blacklist: string[] = (result[BLACKLIST_KEY] as string[]) || [];
+        const blacklist: string[] = result[BLACKLIST_KEY] || [];
         const updated = blacklist.filter(d => d !== domain);
         await chrome.storage.local.set({ [BLACKLIST_KEY]: updated });
         console.log('ZeroVault: Removed from blacklist:', domain);

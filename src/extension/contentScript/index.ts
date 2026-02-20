@@ -275,7 +275,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     showSavePrompt(message.data);
     sendResponse({ success: true });
   } else if (message.type === MessageType.SHOW_UPDATE_PROMPT) {
-    showSavePrompt(message.data);
+    showUpdatePrompt(message.data);
     sendResponse({ success: true });
   }
 

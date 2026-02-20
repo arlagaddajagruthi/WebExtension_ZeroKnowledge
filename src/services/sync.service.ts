@@ -179,7 +179,7 @@ class SyncService {
 
             return {
                 success: true,
-                credentials: decrypted.filter((c: Credential | null): c is Credential => c !== null)
+                credentials: decrypted.filter((c): c is Credential => c !== null)
             };
 
         } catch (error) {

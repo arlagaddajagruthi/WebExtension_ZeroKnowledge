@@ -1,256 +1,256 @@
-import type { Credential, SyncStatus } from '../utils/types';
-import { supabase, syncService as supabaseSyncService, deviceService } from './supabase';
-import { encryptVaultData, decryptVaultData } from '../utils/crypto';
-import { useAuthStore } from '../store/authStore';
+/**
+ * WebAuthn Service for Biometric Authentication
+ * 
+ * Implements FIDO2/WebAuthn for secure biometric authentication
+ * (fingerprint, face recognition, etc.)
+ */
 
-export interface SyncItem extends Credential {
-    deleted?: boolean;
-    encrypted_data?: string;
-    iv?: string;
-}
-
-export interface SyncResponse {
-    changes: SyncItem[];
-    lastSynced: number;
+export interface WebAuthnCredential {
+    id: string;
+    publicKey: ArrayBuffer;
+    counter: number;
+    transports?: AuthenticatorTransport[];
 }
 
 /**
- * ConflictResolutionStrategy
- * 'lastWriteWins': Server version with latest timestamp wins
- * 'clientWins': Local version wins
- * 'serverWins': Remote version always wins
- * 'manual': Return conflicts for user resolution
+ * Register a new biometric credential
  */
-type ConflictStrategy = 'lastWriteWins' | 'clientWins' | 'serverWins' | 'manual';
-
-class SyncService {
-    private static instance: SyncService;
-    private conflictStrategy: ConflictStrategy = 'lastWriteWins';
-
-    private constructor() { }
-
-    public static getInstance(): SyncService {
-        if (!SyncService.instance) {
-            SyncService.instance = new SyncService();
-        }
-        return SyncService.instance;
-    }
-
-    /**
-     * Sync credentials with Supabase
-     *
-     * This performs a bidirectional sync:
-     * 1. Push local changes to Supabase
-     * 2. Pull remote changes from Supabase
-     * 3. Resolve conflicts based on strategy
-     * 4. Merge results
-     */
-    public async syncChanges(
-        localItems: Credential[],
-        lastSynced: number,
-        encryptionKey: string
-    ): Promise<{ status: SyncStatus, serverItems?: Credential[], timestamp?: number }> {
-        try {
-            console.log('SyncService: Starting Supabase sync...');
-
-            // Get current user
-            const session = await supabase.auth.getSession();
-            const userId = session.data?.session?.user?.id;
-
-            if (!userId) {
-                console.warn('SyncService: No authenticated user');
-                return { status: 'error' };
-            }
-
-            // Push local changes to Supabase
-            const pushResult = await this.pushCredentials(userId, localItems, encryptionKey);
-            if (!pushResult.success) {
-                return { status: 'error' };
-            }
-
-            // Pull remote changes
-            const pullResult = await this.pullCredentials(userId, lastSynced, encryptionKey);
-            if (!pullResult.success) {
-                return { status: 'error' };
-            }
-
-            // Resolve conflicts
-            const mergedItems = await this.resolveConflicts(localItems, pullResult.credentials || []);
-
-            console.log('SyncService: Sync completed successfully');
-
+export async function registerBiometric(
+    userId: string,
+    username: string,
+    email: string
+): Promise<{ success: boolean; credential?: WebAuthnCredential; error?: string }> {
+    try {
+        // Check browser support
+        if (!window.PublicKeyCredential) {
             return {
-                status: 'synced',
-                serverItems: mergedItems,
-                timestamp: Date.now()
+                success: false,
+                error: 'WebAuthn is not supported on this device'
             };
-
-        } catch (error) {
-            console.error('SyncService: Sync failed', error);
-            return { status: 'error' };
         }
-    }
 
-    /**
-     * Push local credentials to Supabase (encrypted)
-     */
-    private async pushCredentials(
-        userId: string,
-        credentials: Credential[],
-        encryptionKey: string
-    ): Promise<{ success: boolean }> {
-        try {
-            const encryptedCredentials = await Promise.all(
-                credentials.map(async (cred) => {
-                    const data = JSON.stringify({
-                        username: cred.username,
-                        password: cred.password,
-                        notes: cred.notes,
-                    });
-                    const encrypted = await encryptVaultData(data, encryptionKey);
+        // Get credential creation options from server
+        // In production, this would come from your backend
+        const options: CredentialCreationOptions = {
+            publicKey: {
+                challenge: new Uint8Array(32),
+                rp: {
+                    name: 'ZeroVault',
+                    id: window.location.hostname,
+                },
+                user: {
+                    id: new TextEncoder().encode(userId),
+                    name: email,
+                    displayName: username,
+                },
+                pubKeyCredParams: [
+                    { alg: -7, type: 'public-key' },
+                    { alg: -257, type: 'public-key' },
+                ],
+                timeout: 60000,
+                attestation: 'direct',
+                authenticatorSelection: {
+                    authenticatorAttachment: 'platform', // Use device biometric
+                    residentKey: 'preferred',
+                    userVerification: 'preferred',
+                },
+            },
+        };
 
-                    return {
-                        id: cred.id,
-                        name: cred.name,
-                        url: cred.url,
-                        encrypted_data: encrypted,
-                        version: cred.version,
-                        lastUpdated: cred.lastUpdated,
-                    };
-                })
-            );
+        // Create credential
+        const credential = await navigator.credentials.create(options) as PublicKeyCredential;
 
-            // Batch upsert to Supabase
-            const result = await supabaseSyncService.batchSyncCredentials(userId, encryptedCredentials);
-
-            if (!result.success) {
-                throw new Error('Failed to push credentials');
-            }
-
-            console.log('SyncService: Pushed', encryptedCredentials.length, 'credentials');
-            return { success: true };
-
-        } catch (error) {
-            console.error('SyncService: Push failed', error);
-            return { success: false };
-        }
-    }
-
-    /**
-     * Pull remote credentials from Supabase (encrypted)
-     */
-    private async pullCredentials(
-        userId: string,
-        lastSynced: number,
-        encryptionKey: string
-    ): Promise<{ success: boolean; credentials?: Credential[] }> {
-        try {
-            // Get changes since last sync
-            const result = await supabaseSyncService.getChangesSince(userId, lastSynced);
-
-            if (!result.success) {
-                throw new Error('Failed to pull credentials');
-            }
-
-            const remoteCredentials = result.changes || [];
-
-            // Decrypt credentials
-            const decrypted = await Promise.all(
-                remoteCredentials.map(async (cred: any) => {
-                    try {
-                        const data = await decryptVaultData(cred.encrypted_data, encryptionKey);
-                        const parsed = JSON.parse(data);
-                        return {
-                            id: cred.id,
-                            name: cred.name,
-                            url: cred.url,
-                            username: parsed.username,
-                            password: parsed.password,
-                            notes: parsed.notes,
-                            version: cred.version,
-                            lastUpdated: cred.lastUpdated,
-                        };
-                    } catch (e) {
-                        console.error('Failed to decrypt credential:', cred.id, e);
-                        return null;
-                    }
-                })
-            );
-
+        if (!credential) {
             return {
-                success: true,
-                credentials: decrypted.filter((c: Credential | null): c is Credential => c !== null)
-
+                success: false,
+                error: 'Failed to create credential'
             };
-
-        } catch (error) {
-            console.error('SyncService: Pull failed', error);
-            return { success: false };
-        }
-    }
-
-    /**
-     * Resolve conflicts between local and remote credentials
-     */
-    private async resolveConflicts(
-        local: Credential[],
-        remote: Credential[]
-    ): Promise<Credential[]> {
-        const localMap = new Map(local.map(c => [c.id, c]));
-        const remoteMap = new Map(remote.map(c => [c.id, c]));
-        const merged = new Map(localMap);
-
-        for (const [id, remoteCred] of remoteMap) {
-            const localCred = localMap.get(id);
-
-            if (!localCred) {
-                // Remote only - add it
-                merged.set(id, remoteCred);
-            } else {
-                // Both exist - resolve conflict
-                const resolved = this.resolveCredentialConflict(localCred, remoteCred);
-                merged.set(id, resolved);
-            }
         }
 
-        return Array.from(merged.values());
-    }
+        // Extract public key
+        const response = credential.response as AuthenticatorAttestationResponse;
+        const attestationObject = response.attestationObject;
+        const clientDataJSON = response.clientDataJSON;
 
-    /**
-     * Resolve a single credential conflict
-     */
-    private resolveCredentialConflict(local: Credential, remote: Credential): Credential {
-        switch (this.conflictStrategy) {
-            case 'lastWriteWins':
-                return local.lastUpdated >= remote.lastUpdated ? local : remote;
-            case 'clientWins':
-                return local;
-            case 'serverWins':
-                return remote;
-            case 'manual':
-                // TODO: Implement manual conflict resolution UI
-                return local.lastUpdated >= remote.lastUpdated ? local : remote;
-            default:
-                return local;
-        }
-    }
+        // Store credential
+        const stored = {
+            id: credential.id,
+            publicKey: attestationObject,
+            counter: 0,
+            transports: response.getTransports?.() || [],
+        };
 
-    public async pullChanges(lastSynced: number): Promise<SyncItem[]> {
-        console.log('SyncService: Deprecated method pullChanges called');
-        return [];
-    }
+        return {
+            success: true,
+            credential: stored,
+        };
 
-    public async pushChanges(changes: SyncItem[]): Promise<boolean> {
-        console.log('SyncService: Deprecated method pushChanges called');
-        return true;
-    }
-
-    /**
-     * Set conflict resolution strategy
-     */
-    public setConflictStrategy(strategy: ConflictStrategy) {
-        this.conflictStrategy = strategy;
+    } catch (error: any) {
+        console.error('WebAuthn registration failed:', error);
+        return {
+            success: false,
+            error: error.message || 'WebAuthn registration failed'
+        };
     }
 }
 
-export const syncService = SyncService.getInstance();
+/**
+ * Authenticate using biometric credential
+ */
+export async function authenticateBiometric(
+    credential: WebAuthnCredential
+): Promise<{ success: boolean; verified?: boolean; error?: string }> {
+    try {
+        if (!window.PublicKeyCredential) {
+            return {
+                success: false,
+                error: 'WebAuthn is not supported on this device'
+            };
+        }
+
+        const options: CredentialRequestOptions = {
+            publicKey: {
+                challenge: new Uint8Array(32),
+                allowCredentials: [
+                    {
+                        id: typeof credential.id === 'string' 
+                            ? new TextEncoder().encode(credential.id)
+                            : credential.id as ArrayBuffer,
+                        type: 'public-key',
+                        transports: credential.transports,
+                    },
+                ],
+                timeout: 60000,
+                userVerification: 'preferred',
+            },
+        };
+
+        // Get assertion
+        const assertion = await navigator.credentials.get(options) as PublicKeyCredential;
+
+        if (!assertion) {
+            return {
+                success: false,
+                error: 'Authentication failed'
+            };
+        }
+
+        return {
+            success: true,
+            verified: true,
+        };
+
+    } catch (error: any) {
+        // User cancelled or biometric failed
+        if (error.name === 'NotAllowedError') {
+            return {
+                success: false,
+                error: 'Biometric authentication cancelled or not available'
+            };
+        }
+        console.error('WebAuthn authentication failed:', error);
+        return {
+            success: false,
+            error: error.message || 'WebAuthn authentication failed'
+        };
+    }
+}
+
+/**
+ * Check if WebAuthn is available
+ */
+export function isWebAuthnAvailable(): boolean {
+    return window.PublicKeyCredential !== undefined &&
+           navigator.credentials !== undefined;
+}
+
+/**
+ * Check if platform authenticator is available (device biometric)
+ */
+export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
+    if (!window.PublicKeyCredential) {
+        return false;
+    }
+
+    return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+}
+
+/**
+ * Get available authenticator info
+ */
+export async function getAuthenticatorInfo(): Promise<{
+    biometricsAvailable: boolean;
+    securityKeyAvailable: boolean;
+}> {
+    return {
+        biometricsAvailable: await isPlatformAuthenticatorAvailable(),
+        securityKeyAvailable: isWebAuthnAvailable(),
+    };
+}
+
+/**
+ * Store biometric credential locally
+ */
+export function storeBiometricCredential(
+    userId: string,
+    credential: WebAuthnCredential
+): void {
+    try {
+        const stored = {
+            userId,
+            credential: {
+                id: credential.id,
+                publicKey: Array.from(new Uint8Array(credential.publicKey)),
+                counter: credential.counter,
+                transports: credential.transports,
+            },
+            registeredAt: Date.now(),
+        };
+
+        localStorage.setItem(
+            `zerovault-biometric-${userId}`,
+            JSON.stringify(stored)
+        );
+    } catch (error) {
+        console.error('Failed to store biometric credential:', error);
+    }
+}
+
+/**
+ * Get stored biometric credential
+ */
+export function getBiometricCredential(userId: string): WebAuthnCredential | null {
+    try {
+        const stored = localStorage.getItem(`zerovault-biometric-${userId}`);
+        if (!stored) {
+            return null;
+        }
+
+        const data = JSON.parse(stored);
+        return {
+            id: data.credential.id,
+            publicKey: new Uint8Array(data.credential.publicKey).buffer,
+            counter: data.credential.counter,
+            transports: data.credential.transports,
+        };
+    } catch (error) {
+        console.error('Failed to retrieve biometric credential:', error);
+        return null;
+    }
+}
+
+/**
+ * Remove biometric credential
+ */
+export function removeBiometricCredential(userId: string): void {
+    localStorage.removeItem(`zerovault-biometric-${userId}`);
+}
+
+/**
+ * List all registered biometric credentials for user
+ */
+export function listBiometricCredentials(userId: string): WebAuthnCredential[] {
+    // In a full implementation, you'd store multiple credentials
+    const credential = getBiometricCredential(userId);
+    return credential ? [credential] : [];
+}
