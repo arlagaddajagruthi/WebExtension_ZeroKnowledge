@@ -15,6 +15,14 @@ export default defineConfig({
     target: 'esnext',
     minify: false,
   },
+  server: {
+    // Serve popup.html during development for testing
+    middlewareMode: false,
+  },
+  preview: {
+    // Preview the popup in development
+    open: '/popup.html',
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
