@@ -3,7 +3,8 @@ import { vi } from 'vitest';
 import { chrome } from './mocks/chrome';
 
 // Mock the global chrome object
-global.chrome = chrome as any;
+(globalThis as any).chrome = chrome;
+
 
 // Mock matchMedia for UI components
 Object.defineProperty(window, 'matchMedia', {

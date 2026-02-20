@@ -115,16 +115,24 @@ export const useVaultStore = create<VaultStore>()(
 
             syncVault: async () => {
                 const { credentials, lastSynced, setSyncStatus } = get();
+                const encryptionKey = useAuthStore.getState().encryptionKey;
+
+                if (!encryptionKey) {
+                    console.warn('VaultStore: Cannot sync, no encryption key');
+                    setSyncStatus('error');
+                    return;
+                }
 
                 try {
                     setSyncStatus('syncing');
-                    const result = await syncService.syncChanges(credentials, lastSynced || 0);
+                    const result = await syncService.syncChanges(credentials, lastSynced || 0, encryptionKey);
 
                     if (result.status === 'synced' && result.timestamp) {
                         set({
                             lastSynced: result.timestamp,
                             syncStatus: 'synced',
-                            // In a real app, merge serverItems here
+                            // Optionally merge serverItems here for bidirectional sync
+                            credentials: result.serverItems || credentials,
                         });
                     } else if (result.status === 'error') {
                         setSyncStatus('error');

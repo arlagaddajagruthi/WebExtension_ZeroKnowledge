@@ -275,7 +275,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     showSavePrompt(message.data);
     sendResponse({ success: true });
   } else if (message.type === MessageType.SHOW_UPDATE_PROMPT) {
-    showUpdatePrompt(message.data);
+    showSavePrompt(message.data);
     sendResponse({ success: true });
   }
 
@@ -416,8 +416,9 @@ function showSavePrompt(data: { url: string; username: string; password: string 
         await sendToBackground(MessageType.SAVE_CREDENTIAL, data);
         console.log('ZeroVault: Saved credential');
       } else if (action === 'never') {
-        // TODO: Add to blacklist
-        console.log('ZeroVault: Added to blacklist');
+        const domain = new URL(data.url).hostname.replace('www.', '');
+        await sendToBackground(MessageType.BLACKLIST_DOMAIN, { domain });
+        console.log('ZeroVault: Added to blacklist:', domain);
       }
 
       prompt.remove();

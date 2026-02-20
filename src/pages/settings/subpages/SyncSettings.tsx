@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 import { Button, Card } from '../../../components/ui';
@@ -6,7 +6,19 @@ import { useVaultStore } from '../../../store/vaultStore';
 
 const SyncSettings = () => {
     const navigate = useNavigate();
-    const { syncStatus, lastSynced } = useVaultStore();
+    const { syncStatus, lastSynced, syncVault } = useVaultStore();
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const handleSync = async () => {
+        setIsSyncing(true);
+        try {
+            await syncVault();
+        } catch (error) {
+            console.error('Sync failed:', error);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     return (
         <div className="flex flex-col h-full bg-background overflow-y-auto">
@@ -34,9 +46,13 @@ const SyncSettings = () => {
                             Last synced: {lastSynced ? new Date(lastSynced).toLocaleString() : 'Never'}
                         </p>
                     </div>
-                    <Button className="w-full">
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Sync Now
+                    <Button
+                        onClick={handleSync}
+                        disabled={isSyncing || syncStatus === 'syncing'}
+                        className="w-full"
+                    >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                        {isSyncing ? 'Syncing...' : 'Sync Now'}
                     </Button>
                 </Card>
 

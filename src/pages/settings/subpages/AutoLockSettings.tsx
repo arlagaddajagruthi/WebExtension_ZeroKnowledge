@@ -6,11 +6,22 @@ import { Button, Card, Label } from '../../../components/ui';
 const AutoLockSettings = () => {
     const navigate = useNavigate();
     const [timeout, setTimeoutVal] = useState('15');
+    const [saving, setSaving] = useState(false);
 
-    const handleSave = () => {
-        // In a real app, save to storage
-        // chrome.storage.local.set({ autoLockTimeout: parseInt(timeout) });
-        navigate('/settings');
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            // Save to chrome.storage.local
+            // -1 means never lock, otherwise it's minutes
+            const timeoutMinutes = parseInt(timeout);
+            await chrome.storage.local.set({ autoLockTimeout: timeoutMinutes });
+            console.log('Auto-lock timeout saved:', timeoutMinutes, 'minutes');
+            navigate('/settings');
+        } catch (error) {
+            console.error('Failed to save auto-lock timeout:', error);
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -39,7 +50,9 @@ const AutoLockSettings = () => {
                             <option value="-1">Never</option>
                         </select>
                     </div>
-                    <Button onClick={handleSave} className="w-full">Save Changes</Button>
+                    <Button onClick={handleSave} disabled={saving} className="w-full">
+                        {saving ? 'Saving...' : 'Save Changes'}
+                    </Button>
                 </Card>
             </div>
         </div>
