@@ -286,8 +286,8 @@ export async function searchCredentialsWorkflow(query: string): Promise<{ creden
     const results = credentials.filter(c =>
       c.url.toLowerCase().includes(lowerQuery) ||
       c.username.toLowerCase().includes(lowerQuery) ||
-      c.notes.toLowerCase().includes(lowerQuery) ||
-      c.tags.some(t => t.toLowerCase().includes(lowerQuery))
+      (c.notes && c.notes.toLowerCase().includes(lowerQuery)) ||
+      (c.tags && c.tags.some(t => t.toLowerCase().includes(lowerQuery)))
     );
 
     return { credentials: results };

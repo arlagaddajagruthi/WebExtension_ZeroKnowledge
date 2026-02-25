@@ -77,7 +77,7 @@ export async function registerBiometric(
             id: credential.id,
             publicKey: attestationObject,
             counter: 0,
-            transports: response.getTransports?.() || [],
+            transports: (response.getTransports?.() || []) as AuthenticatorTransport[],
         };
 
         return {

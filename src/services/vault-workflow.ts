@@ -166,7 +166,7 @@ export async function loginUserWorkflow(
     console.log('[LOGIN] Salt retrieved from local storage');
 
     // STEP 3: Derive master key from user input
-    const masterKey = await deriveMasterKey(masterPassword, stored.zerovault_master_salt);
+    const masterKey = await deriveMasterKey(masterPassword, stored.zerovault_master_salt as string);
 
     // STEP 4: Verify master password by checking hash
     if (masterKey !== stored.zerovault_master_password_hash) {
@@ -219,7 +219,7 @@ export async function unlockVaultWorkflow(masterPassword: string): Promise<{ suc
     const stored = await chrome.storage.local.get(['zerovault_master_salt', 'zerovault_master_password_hash']);
 
     // Verify password
-    const masterKey = await deriveMasterKey(masterPassword, stored.zerovault_master_salt);
+    const masterKey = await deriveMasterKey(masterPassword, stored.zerovault_master_salt as string);
 
     if (masterKey !== stored.zerovault_master_password_hash) {
       throw new Error('Incorrect master password');
@@ -317,10 +317,10 @@ export async function getVaultState(): Promise<{ vault?: VaultState; error?: str
 
     // Get encrypted vault
     const localData = await chrome.storage.local.get('zerovault_vault');
-    const encryptedVault = localData.zerovault_vault;
+    const encryptedVault = localData.zerovault_vault as string;
 
     // Decrypt
-    const vaultJson = await decryptVaultData(encryptedVault, masterKey);
+    const vaultJson = await decryptVaultData(encryptedVault, masterKey as string);
     const vault: VaultState = JSON.parse(vaultJson);
 
     return { vault };
@@ -351,7 +351,7 @@ export async function saveVaultState(vault: VaultState): Promise<{ success: bool
 
     // Encrypt
     const vaultJson = JSON.stringify(vault);
-    const encryptedVault = await encryptVaultData(vaultJson, masterKey);
+    const encryptedVault = await encryptVaultData(vaultJson, masterKey as string);
 
     // Save to storage
     await chrome.storage.local.set({

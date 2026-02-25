@@ -85,6 +85,150 @@ async function handleFormsDetected(forms: LoginForm[]) {
   }
 }
 
+// Show master password prompt for autofill
+function showMasterPasswordPrompt(): Promise<string | null> {
+  return new Promise((resolve) => {
+    // Remove existing prompt
+    const existing = document.querySelector('.zerovault-master-pwd-prompt');
+    if (existing) {
+      existing.remove();
+    }
+
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'zerovault-modal-overlay';
+    overlay.innerHTML = `
+      <div class="zerovault-modal">
+        <div class="zerovault-modal-header">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          <h2>Unlock Vault</h2>
+        </div>
+        <div class="zerovault-modal-content">
+          <p>Enter your master password to autofill credentials</p>
+          <input type="password" class="zerovault-password-input" placeholder="Master Password" autofocus />
+        </div>
+        <div class="zerovault-modal-actions">
+          <button class="zerovault-btn zerovault-btn-primary" data-action="unlock">Unlock</button>
+          <button class="zerovault-btn zerovault-btn-ghost" data-action="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    // Add styles
+    const style = document.createElement('style');
+    style.textContent = `
+      .zerovault-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 999999;
+        backdrop-filter: blur(4px);
+      }
+      .zerovault-modal {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        max-width: 400px;
+        width: 90%;
+        overflow: hidden;
+      }
+      .zerovault-modal-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px;
+        border-bottom: 1px solid #e5e7eb;
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+      }
+      .zerovault-modal-header h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .zerovault-modal-header svg {
+        flex-shrink: 0;
+      }
+      .zerovault-modal-content {
+        padding: 24px;
+      }
+      .zerovault-modal-content p {
+        margin: 0 0 16px 0;
+        color: #374151;
+        font-size: 14px;
+      }
+      .zerovault-password-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+        transition: border-color 0.2s;
+      }
+      .zerovault-password-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      }
+      .zerovault-modal-actions {
+        display: flex;
+        gap: 8px;
+        padding: 16px 24px;
+        border-top: 1px solid #e5e7eb;
+        background: #f9fafb;
+      }
+      .zerovault-modal-actions .zerovault-btn {
+        flex: 1;
+        padding: 10px 16px;
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(overlay);
+
+    // Handle button clicks
+    const passwordInput = overlay.querySelector('.zerovault-password-input') as HTMLInputElement;
+    overlay.querySelectorAll('.zerovault-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = (btn as HTMLElement).dataset.action;
+        if (action === 'unlock') {
+          const password = passwordInput.value;
+          overlay.remove();
+          resolve(password);
+        } else {
+          overlay.remove();
+          resolve(null);
+        }
+      });
+    });
+
+    // Handle Enter key
+    passwordInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        const password = passwordInput.value;
+        overlay.remove();
+        resolve(password);
+      }
+    });
+
+    // Handle Escape key
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        resolve(null);
+      }
+    });
+  });
+}
+
 // Inject autofill bubble near password field
 function injectAutofillBubble(loginForm: LoginForm, credentials: Credential[]) {
   const { passwordField } = loginForm;
@@ -214,10 +358,27 @@ function showCredentialDropdown(
       <div class="zerovault-credential-url">${cred.name || extractDomain(cred.url)}</div>
     `;
 
-    item.addEventListener('click', () => {
-      fillForm(loginForm, { username: cred.username, password: cred.password });
-      dropdown.remove();
-      console.log('ZeroVault: Autofilled credentials');
+    item.addEventListener('click', async () => {
+      // Check if vault is locked and prompt for master password
+      const vaultStatus = await sendToBackground<{ isLocked: boolean }>(MessageType.GET_VAULT_STATUS, {});
+
+      if (vaultStatus?.isLocked) {
+        // Show master password prompt
+        const masterPassword = await showMasterPasswordPrompt();
+        if (masterPassword) {
+          // Send unlock request to background
+          await sendToBackground(MessageType.UNLOCK_VAULT, { masterPassword });
+          fillForm(loginForm, { username: cred.username, password: cred.password });
+          dropdown.remove();
+          console.log('ZeroVault: Autofilled credentials after unlock');
+        } else {
+          console.log('ZeroVault: Master password required');
+        }
+      } else {
+        fillForm(loginForm, { username: cred.username, password: cred.password });
+        dropdown.remove();
+        console.log('ZeroVault: Autofilled credentials');
+      }
     });
 
     dropdown.appendChild(item);
@@ -419,6 +580,61 @@ function showSavePrompt(data: { url: string; username: string; password: string 
         const domain = new URL(data.url).hostname.replace('www.', '');
         await sendToBackground(MessageType.BLACKLIST_DOMAIN, { domain });
         console.log('ZeroVault: Added to blacklist:', domain);
+      }
+
+      prompt.remove();
+    });
+  });
+
+  // Auto-dismiss after 15 seconds
+  setTimeout(() => {
+    if (document.body.contains(prompt)) {
+      prompt.remove();
+    }
+  }, 15000);
+}
+
+// Show update password prompt
+function showUpdatePrompt(data: { url: string; username: string; password: string; credentialId: string }) {
+  // Remove existing prompt
+  const existing = document.querySelector('.zerovault-update-prompt');
+  if (existing) {
+    existing.remove();
+  }
+
+  // Create prompt
+  const prompt = document.createElement('div');
+  prompt.className = 'zerovault-update-prompt';
+  prompt.innerHTML = `
+    <div class="zerovault-prompt-content">
+      <div class="zerovault-prompt-header">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span>Update password for ${extractDomain(data.url)}?</span>
+      </div>
+      <div class="zerovault-prompt-info">
+        <div><strong>Username:</strong> ${data.username}</div>
+        <div><strong>New Password:</strong> ${'•'.repeat(8)}</div>
+      </div>
+      <div class="zerovault-prompt-actions">
+        <button class="zerovault-btn zerovault-btn-primary" data-action="update">Update</button>
+        <button class="zerovault-btn zerovault-btn-ghost" data-action="dismiss">Skip</button>
+      </div>
+    </div>
+  `;
+
+  // Reuse styles from save prompt
+  document.body.appendChild(prompt);
+
+  // Handle button clicks
+  prompt.querySelectorAll('.zerovault-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const action = (btn as HTMLElement).dataset.action;
+
+      if (action === 'update') {
+        await sendToBackground(MessageType.UPDATE_CREDENTIAL, data);
+        console.log('ZeroVault: Updated credential');
       }
 
       prompt.remove();

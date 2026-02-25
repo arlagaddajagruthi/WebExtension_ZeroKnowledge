@@ -166,10 +166,11 @@ class SyncService {
                             url: cred.url,
                             username: parsed.username,
                             password: parsed.password,
-                            notes: parsed.notes,
+                            notes: parsed.notes || '',
+                            tags: parsed.tags || [],
                             version: cred.version,
                             lastUpdated: cred.lastUpdated,
-                        };
+                        } as Credential;
                     } catch (e) {
                         console.error('Failed to decrypt credential:', cred.id, e);
                         return null;

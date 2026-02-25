@@ -1,6 +1,6 @@
 export interface Credential {
     id: string;
-    name: string;
+    name?: string;
     url: string;
     username: string;
     password: string;
@@ -8,6 +8,10 @@ export interface Credential {
     tags?: string[];
     lastUpdated: number;
     version: number;
+    _deviceId?: string;
+    _createdAt?: number;
+    _isDeleted?: boolean;
+    _deletedAt?: number;
 }
 
 export type SyncStatus = 'synced' | 'pending' | 'syncing' | 'offline' | 'error';
