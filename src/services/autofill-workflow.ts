@@ -11,6 +11,7 @@
 import { getCredentialsByDomainWorkflow } from './credential-workflow';
 import { getVaultState } from './vault-workflow';
 import type { Credential } from '../utils/types';
+import { matchURL } from '../utils/urlMatcher';
 
 export interface DetectedForm {
   id: string;
@@ -108,24 +109,17 @@ export function detectLoginForms(): DetectedForm[] {
 
 /**
  * WORKFLOW 2: GET MATCHING CREDENTIALS
- * 
+ *
  * Flow:
- * 1. Extract domain from current URL
- * 2. Query vault for matching credentials
- * 3. Return credential options (username + domain, no password)
+ * 1. Query vault for matching credentials (handles equivalent domains)
+ * 2. Return credential options (username + domain, no password)
  */
 export async function getMatchingCredentialsWorkflow(url: string): Promise<{ options: CredentialOption[]; error?: string }> {
   try {
     console.log('[CREDENTIAL_MATCHING] Getting credentials for:', url);
 
-    // Extract domain
-    const urlObj = new URL(url);
-    const domain = urlObj.hostname;
-
-    console.log('[CREDENTIAL_MATCHING] Domain extracted:', domain);
-
-    // Get matching credentials
-    const result = await getCredentialsByDomainWorkflow(domain);
+    // Get matching credentials (handles equivalent domains via matchURL)
+    const result = await getCredentialsByDomainWorkflow(url);
     if (result.error) {
       throw new Error(result.error);
     }
@@ -242,19 +236,13 @@ export async function onFormSubmittedWorkflow(
       return { action: 'IGNORE' };
     }
 
-    // Find credential with same domain + username
+    // Find credential with matching domain + username (handles equivalent domains)
     const existingCredential = vaultResult.vault.credentials.find((c: Credential) => {
-      try {
-        const cUrl = new URL(c.url);
-        const formUrl = new URL(url);
-        return (
-          cUrl.hostname === formUrl.hostname &&
-          c.username === username &&
-          !c._isDeleted
-        );
-      } catch {
-        return false;
-      }
+      return (
+        matchURL(c.url, url) &&
+        c.username === username &&
+        !c._isDeleted
+      );
     });
 
     // Determine action

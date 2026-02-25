@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Plus, Search, LogOut, Key, ShieldCheck, Settings, Copy, Cloud, CloudOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button, Input, Card, cn, Toast, type ToastType } from '../../components/ui';
 import { useVaultStore } from '../../store/vaultStore';
 import { useAuthStore } from '../../store/authStore';
+import { loadCredentials } from '../../services/storage';
 import { useNavigate } from 'react-router-dom';
 import type { Credential } from '../../utils/types';
 
@@ -21,15 +22,39 @@ import type { Credential } from '../../utils/types';
  */
 const VaultHome = () => {
     const navigate = useNavigate();
-    const { credentials, syncStatus } = useVaultStore();
+    const { credentials, syncStatus, setCredentials } = useVaultStore();
     const logout = useAuthStore((state) => state.logout);
+    const encryptionKey = useAuthStore((state) => state.encryptionKey);
     const [search, setSearch] = useState('');
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null);
 
+    // Always reflect the latest credentials stored by the background script
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadFromStorage = async () => {
+            if (!encryptionKey) return;
+
+            try {
+                const creds = await loadCredentials(encryptionKey);
+                if (isMounted) {
+                    setCredentials(creds);
+                }
+            } catch (error) {
+                console.error('VaultHome: Failed to load credentials from storage', error);
+            }
+        };
+
+        loadFromStorage();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [encryptionKey, setCredentials]);
 
 
     const filteredCredentials = credentials.filter(c =>
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
         c.username.toLowerCase().includes(search.toLowerCase()) ||
         c.url.toLowerCase().includes(search.toLowerCase())
     );
@@ -161,10 +186,10 @@ const CredentialItem = ({ item, onCopy, onEdit }: { item: Credential, onCopy: (t
         <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3 overflow-hidden">
                 <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-primary font-bold">{item.name[0].toUpperCase()}</span>
+                    <span className="text-primary font-bold">{(item.name || 'U')[0].toUpperCase()}</span>
                 </div>
                 <div className="overflow-hidden">
-                    <h3 className="font-semibold text-sm truncate">{item.name}</h3>
+                    <h3 className="font-semibold text-sm truncate">{item.name || 'Unnamed Site'}</h3>
                     <p className="text-xs text-muted-foreground truncate">{item.username}</p>
                 </div>
             </div>

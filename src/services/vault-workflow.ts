@@ -178,7 +178,7 @@ export async function loginUserWorkflow(
 
     // STEP 5: Decrypt vault
     console.log('[LOGIN] Decrypting vault...');
-    const decryptedVaultJson = await decryptVaultData(stored.zerovault_vault, masterKey);
+    const decryptedVaultJson = await decryptVaultData(stored.zerovault_vault as string, masterKey);
     const vault: VaultState = JSON.parse(decryptedVaultJson);
 
     console.log('[LOGIN] Vault decrypted successfully, credentials:', vault.credentials.length);

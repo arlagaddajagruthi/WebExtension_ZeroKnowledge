@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Lock, Zap, RefreshCw } from 'lucide-react';
+import { Shield, Lock, Zap, RefreshCw, LogIn, UserPlus } from 'lucide-react';
 import { Button } from '../../components/ui';
 
 const Welcome = () => {
     const navigate = useNavigate();
+    const [showOptions, setShowOptions] = useState(false);
 
     return (
-        <div className="flex flex-col items-center justify-center space-y-8 text-center p-6">
+        <div className="flex flex-col items-center justify-center space-y-8 text-center p-6 min-h-[500px]">
             <div className="space-y-2">
                 <div className="flex justify-center">
                     <div className="bg-primary/10 p-4 rounded-full">
@@ -43,11 +44,37 @@ const Welcome = () => {
                 />
             </div>
 
-            <div className="space-y-4 w-full max-w-xs">
-                <Button onClick={() => navigate('/register')} className="w-full text-lg h-12">
-                    Get Started
-                </Button>
-                <p className="text-sm text-muted-foreground">
+            <div className="space-y-4 w-full max-w-xs transition-all duration-300">
+                {!showOptions ? (
+                    <Button onClick={() => setShowOptions(true)} className="w-full text-lg h-12 shadow-lg hover:shadow-xl transition-all">
+                        Get Started
+                    </Button>
+                ) : (
+                    <div className="space-y-3 animate-in fade-in zoom-in-95 duration-300">
+                        <Button
+                            onClick={() => navigate('/login')}
+                            className="w-full text-lg h-12 flex items-center justify-center gap-2"
+                            variant="outline"
+                        >
+                            <LogIn className="w-5 h-5" />
+                            Login
+                        </Button>
+                        <Button
+                            onClick={() => navigate('/register')}
+                            className="w-full text-lg h-12 flex items-center justify-center gap-2 shadow-lg"
+                        >
+                            <UserPlus className="w-5 h-5" />
+                            Sign Up
+                        </Button>
+                        <button
+                            onClick={() => setShowOptions(false)}
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-2 underline underline-offset-4"
+                        >
+                            Go Back
+                        </button>
+                    </div>
+                )}
+                <p className="text-sm text-muted-foreground mt-4">
                     Your data is encrypted locally and never shared.
                 </p>
             </div>

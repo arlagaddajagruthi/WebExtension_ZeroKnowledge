@@ -11,6 +11,7 @@
 import { getVaultState, saveVaultState } from './vault-workflow';
 import type { Credential } from '../utils/types';
 import type { VaultState } from './vault-workflow';
+import { matchURL } from '../utils/urlMatcher';
 
 /**
  * WORKFLOW 1: ADD NEW CREDENTIAL
@@ -297,24 +298,16 @@ export async function searchCredentialsWorkflow(query: string): Promise<{ creden
 }
 
 /**
- * WORKFLOW 7: GET CREDENTIALS BY DOMAIN
- * 
- * Used for autofill matching
+ * WORKFLOW 7: GET CREDENTIALS FOR URL
+ *
+ * Used for autofill matching. Handles equivalent domains (e.g. sbi.co.in and onlinesbi.sbi)
  */
-export async function getCredentialsByDomainWorkflow(domain: string): Promise<{ credentials: Credential[]; error?: string }> {
+export async function getCredentialsByDomainWorkflow(url: string): Promise<{ credentials: Credential[]; error?: string }> {
   try {
     const { credentials } = await getCredentialsWorkflow();
 
-    // Match by domain
-    const matched = credentials.filter(c => {
-      try {
-        const credUrl = new URL(c.url);
-        const credDomain = credUrl.hostname.replace('www.', '');
-        return domain.includes(credDomain) || credDomain.includes(domain);
-      } catch {
-        return false;
-      }
-    });
+    // Match by URL (handles equivalent domains)
+    const matched = credentials.filter(c => matchURL(c.url, url));
 
     return { credentials: matched };
   } catch (error: any) {

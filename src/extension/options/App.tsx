@@ -26,7 +26,7 @@ const Dashboard = () => {
     const [search, setSearch] = useState('');
 
     const filteredCredentials = credentials.filter(c =>
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
         c.username.toLowerCase().includes(search.toLowerCase())
     );
 
@@ -207,10 +207,10 @@ const VaultCard = ({ item }: { item: Credential }) => (
         </div>
         <div className="flex items-center gap-4 mb-4">
             <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 border border-primary/20">
-                <span className="text-primary font-bold text-xl">{item.name[0].toUpperCase()}</span>
+                <span className="text-primary font-bold text-xl">{(item.name || 'U')[0].toUpperCase()}</span>
             </div>
             <div className="overflow-hidden">
-                <h3 className="font-bold truncate text-base">{item.name}</h3>
+                <h3 className="font-bold truncate text-base">{item.name || 'Unnamed Site'}</h3>
                 <p className="text-sm text-muted-foreground truncate">{item.username}</p>
             </div>
         </div>

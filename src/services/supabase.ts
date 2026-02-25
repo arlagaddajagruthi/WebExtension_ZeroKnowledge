@@ -76,6 +76,44 @@ export const authService = {
     },
 
     /**
+     * Send a one-time passcode (OTP) to the user's registered email.
+     * This uses Supabase's passwordless email OTP feature.
+     */
+    async sendOtpToEmail(email: string) {
+        try {
+            const { data, error } = await supabase.auth.signInWithOtp({
+                email,
+                options: {
+                    shouldCreateUser: false,
+                },
+            });
+            if (error) throw error;
+            return { success: true, data };
+        } catch (error) {
+            console.error('Supabase send OTP failed:', error);
+            return { success: false, error };
+        }
+    },
+
+    /**
+     * Verify an email OTP token.
+     */
+    async verifyEmailOtp(email: string, token: string) {
+        try {
+            const { data, error } = await supabase.auth.verifyOtp({
+                email,
+                token,
+                type: 'email',
+            } as any);
+            if (error) throw error;
+            return { success: true, data };
+        } catch (error) {
+            console.error('Supabase verify OTP failed:', error);
+            return { success: false, error };
+        }
+    },
+
+    /**
      * Reset password
      */
     async resetPassword(email: string) {

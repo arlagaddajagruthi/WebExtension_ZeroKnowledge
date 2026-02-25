@@ -6,6 +6,11 @@ import { useAuthStore } from '../../store/authStore';
 import { deriveMasterKey, generateSalt } from '../../utils/crypto';
 import { authService } from '../../services/supabase';
 
+/**
+ * Register Component
+ *
+ * One-step or Two-step process for account registration and vault initialization.
+ */
 const Register = () => {
     const navigate = useNavigate();
     const setRegistered = useAuthStore((state) => state.setRegistered);
@@ -79,8 +84,15 @@ const Register = () => {
             const salt = generateSalt();
             const hash = await deriveMasterKey(masterPassword, salt);
 
-            // Store locally
+            // Store locally in Zustand
             setRegistered(true, hash, salt);
+
+            // Store in chrome.storage.local for background access
+            await chrome.storage.local.set({
+                zerovault_master_salt: salt,
+                zerovault_master_password_hash: hash,
+                zerovault_initialized: true
+            });
 
             // Store hash and salt on Supabase
             // Note: This will be created in the user_metadata table when needed
@@ -88,6 +100,7 @@ const Register = () => {
 
             navigate('/login');
         } catch (err) {
+            console.error('Registration error:', err);
             setError('An error occurred during setup.');
         } finally {
             setIsLoading(false);

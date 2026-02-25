@@ -1,30 +1,18 @@
-# Implementation TODO
+# TODO - Web Extension Fixes
 
-## Task: Password Auto-Save, Auto-Update, and Autofill with Master Password
+## Task 1: Fix/Enhance Master Password Prompt for Autofill
+- [ ] Review and fix the autofill flow to properly prompt for master password
+- [ ] Ensure vault status is correctly checked
+- [ ] Ensure unlock properly sets session key
+- [ ] Test the autofill works after unlock
 
-### TODO Items:
-- [ ] 1. Add UPDATE_CREDENTIAL message type in messaging.ts
-- [ ] 2. Update background script to handle UPDATE_CREDENTIAL message
-- [ ] 3. Update content script to handle UPDATE_CREDENTIAL and showUpdatePrompt properly
-- [ ] 4. Create AutofillPage component for master password verification
-- [ ] 5. Add autofill route in popup/App.tsx
+## Current Issues Identified:
+1. When vault is locked, credentials are still returned to content script (with passwords)
+2. This defeats the purpose of the master password prompt
+3. Need to fix the flow to only return credentials after unlock
 
-### Implementation Steps:
-
-#### Step 1: Add UPDATE_CREDENTIAL message type
-- Edit: src/utils/messaging.ts
-
-#### Step 2: Handle UPDATE_CREDENTIAL in background
-- Edit: src/extension/background/index.ts
-
-#### Step 3: Implement showUpdatePrompt in content script  
-- Edit: src/extension/contentScript/index.ts
-
-#### Step 4: Create AutofillPage component
-- Create: src/pages/autofill/AutofillPage.tsx
-
-#### Step 5: Add autofill route in popup
-- Edit: src/extension/popup/App.tsx
-
-### Dependencies:
-- None (existing code structure is sufficient)
+## Implementation Plan:
+1. Modify `REQUEST_CREDENTIALS` in background to NOT return passwords when vault is locked
+2. Return only credential metadata (username, id, url) when locked
+3. After unlock, background should provide the actual credentials
+4. Enhance content script to handle this flow properly

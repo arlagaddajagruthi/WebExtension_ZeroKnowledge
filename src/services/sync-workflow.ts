@@ -171,8 +171,8 @@ export async function pullSyncWorkflow(): Promise<{
       'zerovault_user_id',
     ]);
 
-    const lastSyncTime = localSync.zerovault_last_sync_time || 0;
-    const lastSyncVersion = localSync.zerovault_last_sync_version || 0;
+    const lastSyncTime = (localSync.zerovault_last_sync_time as number) || 0;
+    const lastSyncVersion = (localSync.zerovault_last_sync_version as number) || 0;
 
     console.log('[PULL_SYNC] Requesting changes since version:', lastSyncVersion);
 

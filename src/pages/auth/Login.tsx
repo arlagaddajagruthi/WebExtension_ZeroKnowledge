@@ -113,6 +113,14 @@ const Login = () => {
                 const hash = await deriveMasterKey(vaultPassword, vaultSalt);
                 if (hash === masterPasswordHash) {
                     setAuthenticated(true, hash);
+
+                    // Sync with background and store in chrome.storage.local
+                    await chrome.storage.local.set({
+                        zerovault_master_salt: vaultSalt,
+                        zerovault_master_password_hash: hash,
+                        zerovault_initialized: true
+                    });
+
                     sendToBackground(MessageType.SET_SESSION_KEY, { key: hash });
 
                     // Load credentials from Supabase if available

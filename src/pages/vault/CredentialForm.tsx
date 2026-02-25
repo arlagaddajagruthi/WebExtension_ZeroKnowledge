@@ -38,7 +38,7 @@ const CredentialForm = () => {
             const credential = credentials.find(c => c.id === id);
             if (credential) {
                 setFormData({
-                    name: credential.name,
+                    name: credential.name || '',
                     url: credential.url,
                     username: credential.username,
                     password: credential.password,

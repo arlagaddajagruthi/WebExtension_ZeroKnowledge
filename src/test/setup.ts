@@ -1,13 +1,9 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
-import { chrome } from './mocks/chrome';
-
-declare global {
-  var chrome: any;
-}
+import { chrome as chromeMock } from './mocks/chrome';
 
 // Mock the global chrome object
-globalThis.chrome = chrome as any;
+(globalThis as any).chrome = chromeMock;
 
 // Mock matchMedia for UI components
 Object.defineProperty(window, 'matchMedia', {
