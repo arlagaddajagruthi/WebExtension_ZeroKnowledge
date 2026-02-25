@@ -94,20 +94,6 @@ const Register = () => {
         }
     };
 
-    const getPasswordStrength = () => {
-        if (!password) return 0;
-        let score = 0;
-        if (password.length > 8) score++;
-        if (/[A-Z]/.test(password)) score++;
-        if (/[0-9]/.test(password)) score++;
-        if (/[^A-Za-z0-9]/.test(password)) score++;
-        return score;
-    };
-
-    const strength = getPasswordStrength();
-    const strengthLabels = ['Weak', 'Fair', 'Good', 'Strong'];
-    const strengthColors = ['bg-destructive', 'bg-yellow-500', 'bg-blue-500', 'bg-emerald-500'];
-
     const getPasswordStrength = (pwd: string) => {
         if (!pwd) return 0;
         let score = 0;

@@ -69,7 +69,7 @@ export async function pushSyncWorkflow(): Promise<{
     // STEP 4: Encrypt entire vault (ZERO-KNOWLEDGE POINT)
     console.log('[PUSH_SYNC] Encrypting vault...');
     const vaultJson = JSON.stringify(vault);
-    const encryptedVault = await encryptVaultData(vaultJson, masterKey);
+    const encryptedVault = await encryptVaultData(vaultJson, masterKey as string);
 
     // STEP 5: Get local storage metadata
     const localStorage = await chrome.storage.local.get([
@@ -98,13 +98,13 @@ export async function pushSyncWorkflow(): Promise<{
     // STEP 7: Create signature (HMAC-SHA256)
     const signature = await createSignature(
       JSON.stringify(syncPayload),
-      sessionToken || 'unsigned'
+      (sessionToken as string) || 'unsigned'
     );
 
     console.log('[PUSH_SYNC] Payload created, size:', encryptedVault.length, 'bytes');
 
     // STEP 8: POST to server with retry logic
-    const pushResult = await pushWithRetry(syncPayload, signature, sessionToken || '');
+    const pushResult = await pushWithRetry(syncPayload, signature, (sessionToken as string) || '');
 
     if (!pushResult.success) {
       throw new Error(pushResult.error || 'Push failed');
@@ -177,7 +177,7 @@ export async function pullSyncWorkflow(): Promise<{
     console.log('[PULL_SYNC] Requesting changes since version:', lastSyncVersion);
 
     // STEP 4: Request changes from server
-    const pullResult = await pullWithRetry(lastSyncTime, lastSyncVersion);
+    const pullResult = await pullWithRetry(lastSyncTime, (lastSyncVersion as number) || 0);
 
     if (!pullResult.success || !pullResult.remoteVault) {
       console.log('[PULL_SYNC] No changes available');
@@ -193,7 +193,7 @@ export async function pullSyncWorkflow(): Promise<{
     }
 
     console.log('[PULL_SYNC] Decrypting remote vault...');
-    const remoteVaultJson = await decryptVaultData(pullResult.remoteVault, masterKey);
+    const remoteVaultJson = await decryptVaultData(pullResult.remoteVault as string, masterKey as string);
     const remoteVault: VaultState = JSON.parse(remoteVaultJson);
 
     // STEP 6: Merge with conflict resolution
@@ -469,8 +469,8 @@ async function pullWithRetry(
  * HELPER: Queue changes for offline sync
  */
 async function queuePendingSync(): Promise<void> {
-  const queue = (await chrome.storage.local.get('zerovault_sync_queue')).zerovault_sync_queue || [];
-  
+  const queue = ((await chrome.storage.local.get('zerovault_sync_queue')).zerovault_sync_queue as any[]) || [];
+
   queue.push({
     type: 'SYNC',
     timestamp: Date.now(),

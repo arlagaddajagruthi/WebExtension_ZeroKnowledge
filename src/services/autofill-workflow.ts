@@ -67,7 +67,7 @@ export function detectLoginForms(): DetectedForm[] {
       }
 
       // STEP 3: Find username field
-      const usernameField = findUsernameField(form, passwordField);
+      const usernameField = findUsernameField(form, passwordField as HTMLInputElement);
       if (!usernameField) {
         console.log('[FORM_DETECTION] No username field found');
         return;
@@ -171,7 +171,7 @@ export async function injectCredentialWorkflow(
       throw new Error('Vault is locked');
     }
 
-    const credential = vaultResult.vault.credentials.find(c => c.id === credentialId);
+    const credential = vaultResult.vault.credentials.find((c: Credential) => c.id === credentialId);
     if (!credential) {
       throw new Error('Credential not found');
     }
@@ -243,7 +243,7 @@ export async function onFormSubmittedWorkflow(
     }
 
     // Find credential with same domain + username
-    const existingCredential = vaultResult.vault.credentials.find(c => {
+    const existingCredential = vaultResult.vault.credentials.find((c: Credential) => {
       try {
         const cUrl = new URL(c.url);
         const formUrl = new URL(url);
@@ -355,9 +355,3 @@ function checkPhishingIndicators(form: HTMLFormElement): boolean {
 
   return suspiciousPatterns.some(pattern => formHtml.includes(pattern));
 }
-
-/**
- * Declare getVaultState from vault-workflow
- * (needs to be available to content script context)
- */
-declare function getVaultState(): Promise<{ vault?: any; error?: string }>;
