@@ -24,9 +24,13 @@ export const MessageType = {
     // Pending save (handle redirects)
     GET_PENDING_SAVE_PROMPT: 'GET_PENDING_SAVE_PROMPT',
 
-    // OTP for autofill
-    REQUEST_AUTOFILL_OTP: 'REQUEST_AUTOFILL_OTP',
-    VERIFY_AUTOFILL_OTP: 'VERIFY_AUTOFILL_OTP',
+    // Master password verification for autofill
+    VERIFY_MASTER_PASSWORD: 'VERIFY_MASTER_PASSWORD',
+
+    // Unlock via popup (for saving credentials from webpage)
+    REQUEST_UNLOCK_FOR_SAVE: 'REQUEST_UNLOCK_FOR_SAVE',
+    UNLOCK_AND_SAVE_CREDENTIAL: 'UNLOCK_AND_SAVE_CREDENTIAL',
+    GET_PENDING_UNLOCK_SAVE: 'GET_PENDING_UNLOCK_SAVE',
 } as const;
 
 export type MessageTypeValue = typeof MessageType[keyof typeof MessageType];

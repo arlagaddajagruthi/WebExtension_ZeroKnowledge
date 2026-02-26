@@ -21,6 +21,9 @@ let sessionKey: string | null = null;
 // prompt even after a redirect (e.g. Gmail redirects after login).
 let pendingSavePrompt: { url: string; username: string; password: string; createdAt: number } | null = null;
 
+// Store credentials pending unlock+save (for the popup flow)
+let pendingUnlockSave: { url: string; username: string; password: string } | null = null;
+
 // Track short-lived OTP approval for autofill to avoid asking the user
 // to enter OTP multiple times in a row.
 let autofillOtpApprovedUntil: number | null = null;
@@ -104,12 +107,20 @@ chrome.runtime.onMessage.addListener((
             sendResponse({ success: true });
             break;
 
-        case MessageType.REQUEST_AUTOFILL_OTP:
-            handleRequestAutofillOtp(sendResponse);
+        case MessageType.VERIFY_MASTER_PASSWORD:
+            handleVerifyMasterPassword(message.data, sendResponse);
             return true; // Async
 
-        case MessageType.VERIFY_AUTOFILL_OTP:
-            handleVerifyAutofillOtp(message.data, sendResponse);
+        case MessageType.REQUEST_UNLOCK_FOR_SAVE:
+            handleRequestUnlockForSave(message.data, sendResponse);
+            return true; // Async
+
+        case MessageType.GET_PENDING_UNLOCK_SAVE:
+            handleGetPendingUnlockSave(sendResponse);
+            return true; // Async
+
+        case MessageType.UNLOCK_AND_SAVE_CREDENTIAL:
+            handleUnlockAndSaveCredential(message.data, sendResponse);
             return true; // Async
 
         default:
@@ -362,59 +373,37 @@ async function handleBlacklistDomain(data: { domain: string }) {
     await addToBlacklist(data.domain);
 }
 
-async function handleRequestAutofillOtp(sendResponse: (response?: any) => void) {
-    try {
-        // If we already have a recent approval, no need to send again
-        if (autofillOtpApprovedUntil && Date.now() < autofillOtpApprovedUntil) {
-            sendResponse({ success: true, alreadyApproved: true });
-            return;
-        }
-
-        const session = await authService.getSession();
-        const email = session.success ? session.session?.user?.email : undefined;
-
-        if (!email) {
-            sendResponse({ success: false, error: 'No authenticated user email' });
-            return;
-        }
-
-        const result = await authService.sendOtpToEmail(email);
-        if (!result.success) {
-            sendResponse({ success: false, error: 'Failed to send OTP' });
-            return;
-        }
-
-        sendResponse({ success: true });
-    } catch (e: any) {
-        console.error('ZeroVault: Request autofill OTP failed', e);
-        sendResponse({ success: false, error: e?.message || 'Unknown error' });
-    }
-}
-
-async function handleVerifyAutofillOtp(
-    data: { token: string },
+async function handleVerifyMasterPassword(
+    data: { masterPassword: string },
     sendResponse: (response?: any) => void
 ) {
     try {
-        const session = await authService.getSession();
-        const email = session.success ? session.session?.user?.email : undefined;
+        // Get stored salt and password hash
+        const stored = await chrome.storage.local.get([
+            'zerovault_master_salt',
+            'zerovault_master_password_hash'
+        ]);
 
-        if (!email) {
-            sendResponse({ success: false, error: 'No authenticated user email' });
+        if (!stored.zerovault_master_salt || !stored.zerovault_master_password_hash) {
+            sendResponse({ success: false, error: 'Vault not initialized' });
             return;
         }
 
-        const result = await authService.verifyEmailOtp(email, data.token);
-        if (!result.success) {
-            sendResponse({ success: false, error: 'Invalid OTP' });
-            return;
-        }
+        // Derive the key using provided master password and stored salt
+        const derivedKey = await deriveMasterKey(data.masterPassword, stored.zerovault_master_salt as string);
 
-        // Grant 10 minutes of OTP-approved autofill
-        autofillOtpApprovedUntil = Date.now() + 10 * 60 * 1000;
-        sendResponse({ success: true });
+        // Verify if it matches the stored hash
+        if (derivedKey === stored.zerovault_master_password_hash as string) {
+            // Grant 10 minutes of autofill approval
+            autofillOtpApprovedUntil = Date.now() + 10 * 60 * 1000;
+            console.log('ZeroVault: Master password verified for autofill');
+            sendResponse({ success: true });
+        } else {
+            console.log('ZeroVault: Invalid master password for autofill');
+            sendResponse({ success: false, error: 'Invalid master password' });
+        }
     } catch (e: any) {
-        console.error('ZeroVault: Verify autofill OTP failed', e);
+        console.error('ZeroVault: Verify master password failed', e);
         sendResponse({ success: false, error: e?.message || 'Unknown error' });
     }
 }
@@ -496,6 +485,120 @@ async function getBlacklist(): Promise<string[]> {
         return (result[BLACKLIST_KEY] as string[]) || [];
     } catch (e) {
         return [];
+    }
+}
+
+// Handler for requesting unlock for save (from content script)
+async function handleRequestUnlockForSave(
+    data: { url: string; username: string; password: string },
+    sendResponse: (response: any) => void
+) {
+    try {
+        // Store the pending credential
+        pendingUnlockSave = {
+            url: data.url,
+            username: data.username,
+            password: data.password,
+        };
+
+        // Open the popup with unlock-save route
+        chrome.runtime.sendMessage({
+            type: MessageType.REQUEST_UNLOCK_FOR_SAVE,
+            data: pendingUnlockSave
+        });
+
+        // Open popup to the unlock-save page
+        chrome.action.openPopup(async () => {
+            // Get the current window and update URL if needed
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (tab?.id) {
+                // Just open popup - the popup will fetch pending credentials
+                sendResponse({ success: true });
+            }
+        });
+    } catch (e: any) {
+        console.error('ZeroVault: Failed to request unlock for save', e);
+        sendResponse({ success: false, error: e?.message || 'Failed to open popup' });
+    }
+}
+
+// Handler for getting pending unlock save credentials
+async function handleGetPendingUnlockSave(sendResponse: (response: any) => void) {
+    try {
+        if (pendingUnlockSave) {
+            sendResponse({ credential: pendingUnlockSave });
+            // Clear after sending (one-time use)
+            pendingUnlockSave = null;
+        } else {
+            sendResponse({ credential: null });
+        }
+    } catch (e) {
+        console.error('ZeroVault: Failed to get pending unlock save', e);
+        sendResponse({ credential: null });
+    }
+}
+
+// Handler for unlocking vault and saving credentials
+async function handleUnlockAndSaveCredential(
+    data: { masterPassword: string; credential: { url: string; username: string; password: string } },
+    sendResponse: (response: any) => void
+) {
+    try {
+        // First, unlock the vault
+        const stored = await chrome.storage.local.get([
+            'zerovault_master_salt',
+            'zerovault_master_password_hash'
+        ]);
+
+        if (!stored.zerovault_master_salt || !stored.zerovault_master_password_hash) {
+            sendResponse({ success: false, error: 'Vault not initialized' });
+            return;
+        }
+
+        // Derive the key using provided master password and stored salt
+        const derivedKey = await deriveMasterKey(data.masterPassword, stored.zerovault_master_salt as string);
+
+        // Verify if it matches the stored hash
+        if (derivedKey !== stored.zerovault_master_password_hash as string) {
+            console.log('ZeroVault: Invalid master password');
+            sendResponse({ success: false, error: 'Invalid master password' });
+            return;
+        }
+
+        // Unlock successful - set session key
+        sessionKey = derivedKey;
+        if (chrome.storage.session) {
+            await chrome.storage.session.set({ sessionKey: derivedKey });
+        }
+
+        console.log('ZeroVault: Vault unlocked, now saving credential');
+
+        // Now save the credential
+        const credentials = await getDecryptedCredentials();
+
+        const newCredential: StoredCredential = {
+            id: crypto.randomUUID(),
+            name: new URL(data.credential.url).hostname.replace('www.', ''),
+            url: data.credential.url,
+            username: data.credential.username,
+            password: data.credential.password,
+            notes: '',
+            createdAt: new Date().toISOString(),
+        };
+
+        credentials.push(newCredential);
+        await saveEncryptedCredentials(credentials);
+
+        console.log('ZeroVault: Credential saved after unlock', {
+            id: newCredential.id,
+            url: newCredential.url,
+            username: newCredential.username,
+        });
+
+        sendResponse({ success: true });
+    } catch (error: any) {
+        console.error('ZeroVault: Unlock and save error:', error);
+        sendResponse({ success: false, error: error.message });
     }
 }
 
