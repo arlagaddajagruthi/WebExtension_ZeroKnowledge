@@ -94,6 +94,19 @@ const Login = () => {
                 // Set authentication state
                 setAuthenticated(true, hash);
 
+                // Get user session and store user ID for sync
+                try {
+                    const sessionResult = await authService.getSession();
+                    if (sessionResult.success && sessionResult.session?.user) {
+                        await chrome.storage.local.set({
+                            zerovault_user_id: sessionResult.session.user.id
+                        });
+                        console.log('ZeroVault: User ID stored for sync');
+                    }
+                } catch (sessionError) {
+                    console.warn('ZeroVault: Failed to get user session:', sessionError);
+                }
+
                 // Update background script
                 await chrome.storage.local.set({
                     zerovault_master_salt: vaultSalt,

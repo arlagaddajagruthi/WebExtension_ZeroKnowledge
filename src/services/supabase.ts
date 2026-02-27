@@ -255,6 +255,115 @@ export const syncService = {
 };
 
 /**
+ * Vault sync service for encrypted vault storage
+ */
+export const vaultSyncService = {
+    /**
+     * Get the encrypted vault for the current user
+     */
+    async getVault(userId: string) {
+        try {
+            const { data, error } = await supabase
+                .from('vaults')
+                .select('*')
+                .eq('user_id', userId)
+                .single();
+            if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+            return { success: true, vault: data };
+        } catch (error) {
+            console.error('Failed to fetch vault:', error);
+            return { success: false, error };
+        }
+    },
+
+    /**
+     * Save the entire encrypted vault to Supabase
+     */
+    async saveVault(userId: string, vaultData: {
+        encrypted_data: string;
+        version: number;
+        metadata: {
+            totalCredentials: number;
+            lastUpdated: string;
+            deviceInfo?: string;
+        };
+    }) {
+        try {
+            // First try to update existing vault
+            const { data: updateData, error: updateError } = await supabase
+                .from('vaults')
+                .update({
+                    encrypted_data: vaultData.encrypted_data,
+                    version: vaultData.version,
+                    metadata: vaultData.metadata,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('user_id', userId)
+                .select()
+                .single();
+
+            if (!updateError && updateData) {
+                console.log('ZeroVault: Vault updated successfully');
+                return { success: true, vault: updateData };
+            }
+
+            // If update fails (no existing vault), try to insert
+            const { data: insertData, error: insertError } = await supabase
+                .from('vaults')
+                .insert({
+                    user_id: userId,
+                    encrypted_data: vaultData.encrypted_data,
+                    version: vaultData.version,
+                    metadata: vaultData.metadata,
+                })
+                .select()
+                .single();
+
+            if (insertError) throw insertError;
+            return { success: true, vault: insertData };
+        } catch (error) {
+            console.error('Failed to save vault:', error);
+            return { success: false, error };
+        }
+    },
+
+    /**
+     * Delete vault from Supabase
+     */
+    async deleteVault(userId: string) {
+        try {
+            const { error } = await supabase
+                .from('vaults')
+                .delete()
+                .eq('user_id', userId);
+            if (error) throw error;
+            return { success: true };
+        } catch (error) {
+            console.error('Failed to delete vault:', error);
+            return { success: false, error };
+        }
+    },
+
+    /**
+     * Get vault version for conflict resolution
+     */
+    async getVaultVersion(userId: string) {
+        try {
+            const { data, error } = await supabase
+                .from('vaults')
+                .select('version, updated_at')
+                .eq('user_id', userId)
+                .single();
+            if (error && error.code !== 'PGRST116') throw error;
+            return { success: true, version: data?.version || 0, updated_at: data?.updated_at };
+        } catch (error) {
+            console.error('Failed to get vault version:', error);
+            return { success: false, error };
+        }
+    },
+};
+
+/**
  * Device tracking for multi-device sync
  */
 export const deviceService = {

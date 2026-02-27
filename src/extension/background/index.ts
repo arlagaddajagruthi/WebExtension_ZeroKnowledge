@@ -1,6 +1,7 @@
 import { MessageType, type Message } from '../../utils/messaging';
 import { matchURL } from '../../utils/urlMatcher';
 import { encryptVaultData, decryptVaultData, deriveMasterKey } from '../../utils/crypto';
+import { vaultSyncService, syncService } from '../../services/supabase';
 
 console.log('ZeroVault: Background script initialized');
 
@@ -164,11 +165,99 @@ async function saveEncryptedCredentials(credentials: StoredCredential[]) {
     }
 
     try {
+        // Save to local storage (existing method)
         const json = JSON.stringify(credentials);
         const encrypted = await encryptVaultData(json, sessionKey);
         await chrome.storage.local.set({ vault_credentials: encrypted });
+        
+        // Also sync individual encrypted credentials to Supabase
+        try {
+            const userId = await getCurrentUserId();
+            console.log('ZeroVault: Checking sync - User ID:', userId);
+            
+            if (userId) {
+                // Encrypt individual credentials for Supabase storage
+                const encryptedCredentials = await Promise.all(
+                    credentials.map(async (cred) => {
+                        const credJson = JSON.stringify({
+                            url: cred.url,
+                            username: cred.username,
+                            password: cred.password, // This will be encrypted
+                            name: cred.name
+                        });
+                        const encryptedCred = await encryptVaultData(credJson, sessionKey);
+                        return {
+                            id: cred.id,
+                            user_id: userId,
+                            name: cred.name,
+                            url: cred.url,
+                            username: cred.username,
+                            encrypted_data: encryptedCred,
+                            created_at: cred.createdAt,
+                            updated_at: new Date().toISOString()
+                        };
+                    })
+                );
+                
+                console.log('ZeroVault: Attempting to sync credentials to Supabase...');
+                const syncResult = await syncService.batchSyncCredentials(userId, encryptedCredentials);
+                console.log('ZeroVault: Sync result:', syncResult);
+                console.log('ZeroVault: Sync error details:', JSON.stringify(syncResult.error, null, 2));
+                
+                if (syncResult.success) {
+                    console.log('ZeroVault: Credentials synced to Supabase successfully');
+                } else {
+                    console.warn('ZeroVault: Failed to sync credentials to Supabase:', syncResult.error);
+                }
+            } else {
+                console.log('ZeroVault: No user ID found, skipping sync');
+            }
+        } catch (syncError) {
+            console.warn('ZeroVault: Credential sync failed, but local save succeeded:', syncError);
+        }
+        
     } catch (error) {
         console.error('ZeroVault: Encryption failed:', error);
+    }
+}
+
+// Helper function to get current user ID
+async function getCurrentUserId(): Promise<string | null> {
+    try {
+        const result = await chrome.storage.local.get('zerovault_user_id');
+        return result.zerovault_user_id || null;
+    } catch (error) {
+        console.error('ZeroVault: Error getting user ID:', error);
+        return null;
+    }
+}
+
+// Sync vault from Supabase to local storage
+async function syncVaultFromSupabase(userId: string, masterKey: string) {
+    try {
+        console.log('ZeroVault: Syncing vault from Supabase...');
+        
+        const vaultResult = await vaultSyncService.getVault(userId);
+        if (!vaultResult.success || !vaultResult.vault) {
+            console.log('ZeroVault: No vault found in Supabase');
+            return;
+        }
+        
+        // Decrypt the vault data
+        const decrypted = await decryptVaultData(vaultResult.vault.encrypted_data, masterKey);
+        const credentials = JSON.parse(decrypted);
+        
+        // Save to local storage
+        await chrome.storage.local.set({ 
+            vault_credentials: vaultResult.vault.encrypted_data,
+            zerovault_last_sync_time: Date.now(),
+            zerovault_last_sync_version: vaultResult.vault.version
+        });
+        
+        console.log(`ZeroVault: Synced ${credentials.length} credentials from Supabase`);
+        
+    } catch (error) {
+        console.error('ZeroVault: Failed to sync vault from Supabase:', error);
     }
 }
 
@@ -410,6 +499,16 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                 await chrome.storage.session.set({ sessionKey });
             }
             console.log('ZeroVault: Vault unlocked successfully');
+            
+            // Sync vault from Supabase after successful unlock
+            try {
+                const userId = await getCurrentUserId();
+                if (userId) {
+                    await syncVaultFromSupabase(userId, derivedKey);
+                }
+            } catch (syncError) {
+                console.warn('ZeroVault: Failed to sync from Supabase, using local vault:', syncError);
+            }
             
             // Check if there are temporarily saved credentials to re-encrypt
             const storage = await chrome.storage.local.get(['vault_credentials', 'temp_encryption_key', 'pending_save']);
