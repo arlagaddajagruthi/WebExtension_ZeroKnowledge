@@ -1,7 +1,6 @@
 import { MessageType, type Message } from '../../utils/messaging';
 import { matchURL } from '../../utils/urlMatcher';
 import { encryptVaultData, decryptVaultData, deriveMasterKey } from '../../utils/crypto';
-import { authService } from '../../services/supabase';
 
 console.log('ZeroVault: Background script initialized');
 
@@ -16,17 +15,6 @@ interface StoredCredential {
 }
 
 let sessionKey: string | null = null;
-
-// Store last submitted credentials so we can re-show the save
-// prompt even after a redirect (e.g. Gmail redirects after login).
-let pendingSavePrompt: { url: string; username: string; password: string; createdAt: number } | null = null;
-
-// Store credentials pending unlock+save (for the popup flow)
-let pendingUnlockSave: { url: string; username: string; password: string } | null = null;
-
-// Track short-lived OTP approval for autofill to avoid asking the user
-// to enter OTP multiple times in a row.
-let autofillOtpApprovedUntil: number | null = null;
 
 // Initialize session key from storage.session (if available)
 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session) {
@@ -71,10 +59,6 @@ chrome.runtime.onMessage.addListener((
             handleRequestCredentials(message.data, sendResponse);
             return true; // Async
 
-        case MessageType.REQUEST_CREDENTIALS_AFTER_UNLOCK:
-            handleRequestCredentialsAfterUnlock(message.data, sendResponse);
-            return true; // Async
-
         case MessageType.GET_VAULT_STATUS:
             sendResponse({ isLocked: !sessionKey });
             return true;
@@ -87,10 +71,6 @@ chrome.runtime.onMessage.addListener((
             handleFormSubmitted(message.data, sender.tab);
             sendResponse({ success: true });
             break;
-
-        case MessageType.GET_PENDING_SAVE_PROMPT:
-            handleGetPendingSavePrompt(message.data, sendResponse);
-            return true; // Async
 
         case MessageType.SAVE_CREDENTIAL:
             handleSaveCredential(message.data);
@@ -106,22 +86,6 @@ chrome.runtime.onMessage.addListener((
             handleBlacklistDomain(message.data);
             sendResponse({ success: true });
             break;
-
-        case MessageType.VERIFY_MASTER_PASSWORD:
-            handleVerifyMasterPassword(message.data, sendResponse);
-            return true; // Async
-
-        case MessageType.REQUEST_UNLOCK_FOR_SAVE:
-            handleRequestUnlockForSave(message.data, sendResponse);
-            return true; // Async
-
-        case MessageType.GET_PENDING_UNLOCK_SAVE:
-            handleGetPendingUnlockSave(sendResponse);
-            return true; // Async
-
-        case MessageType.UNLOCK_AND_SAVE_CREDENTIAL:
-            handleUnlockAndSaveCredential(message.data, sendResponse);
-            return true; // Async
 
         default:
             console.log('ZeroVault: Unknown message type:', message.type);
@@ -179,36 +143,8 @@ async function handleRequestCredentials(
 ) {
     const credentials = await getDecryptedCredentials();
     const matching = credentials.filter((c) => matchURL(c.url, data.url));
-    
-    // If vault is locked (no sessionKey), return only metadata without passwords
-    if (!sessionKey) {
-        console.log(`ZeroVault: Vault locked, returning credential metadata only`);
-        const safeCredentials = matching.map(c => ({
-            id: c.id,
-            name: c.name,
-            url: c.url,
-            username: c.username,
-            // Don't include password when vault is locked
-            password: ''
-        }));
-        sendResponse({ credentials: safeCredentials, isLocked: true });
-    } else {
-        console.log(`ZeroVault: Found ${matching.length} matching credentials`);
-        sendResponse({ credentials: matching, isLocked: false });
-    }
-}
-
-// Handler for requesting credentials after vault is unlocked (returns full credentials with passwords)
-async function handleRequestCredentialsAfterUnlock(
-    data: { url: string },
-    sendResponse: (response: any) => void
-) {
-    // This handler is called after unlock, so sessionKey should be available
-    const credentials = await getDecryptedCredentials();
-    const matching = credentials.filter((c) => matchURL(c.url, data.url));
-    
-    console.log(`ZeroVault: Returning ${matching.length} credentials after unlock`);
-    sendResponse({ credentials: matching, isLocked: false });
+    console.log(`ZeroVault: Found ${matching.length} matching credentials`);
+    sendResponse({ credentials: matching });
 }
 
 async function handleFormSubmitted(
@@ -217,15 +153,7 @@ async function handleFormSubmitted(
 ) {
     if (!tab?.id) return;
 
-    // Remember this submission so we can show the save prompt again
-    // after a redirect on the same site (e.g. Gmail).
-    pendingSavePrompt = {
-        ...data,
-        createdAt: Date.now(),
-    };
-
-    // Always give user a chance to save/update on form submit,
-    // regardless of blacklist state, so that credentials are never silently ignored.
+    // If unlocked, check if it's a new or existing credential
     if (sessionKey) {
         const credentials = await getDecryptedCredentials();
         const existing = credentials.find((c) =>
@@ -234,6 +162,7 @@ async function handleFormSubmitted(
 
         if (existing) {
             if (existing.password !== data.password) {
+                // Show update prompt when password changes
                 console.log('ZeroVault: Password changed');
                 chrome.tabs.sendMessage(tab.id, {
                     type: MessageType.SHOW_UPDATE_PROMPT,
@@ -245,50 +174,27 @@ async function handleFormSubmitted(
                 });
             }
         } else {
+            // Check blacklist before showing save prompt
+            const isBlacklisted = await checkBlacklist(data.url);
+            if (!isBlacklisted) {
+                chrome.tabs.sendMessage(tab.id, {
+                    type: MessageType.SHOW_SAVE_PROMPT,
+                    data,
+                });
+            } else {
+                console.log('ZeroVault: Domain is blacklisted, skipping save prompt');
+            }
+        }
+    } else {
+        // If locked, we don't know if it's new.
+        // We show the save prompt anyway, and handle unlocking when they click Save.
+        const isBlacklisted = await checkBlacklist(data.url);
+        if (!isBlacklisted) {
             chrome.tabs.sendMessage(tab.id, {
                 type: MessageType.SHOW_SAVE_PROMPT,
                 data,
             });
         }
-    } else {
-        // Vault locked: still show save prompt and handle unlock when user chooses Save.
-        chrome.tabs.sendMessage(tab.id, {
-            type: MessageType.SHOW_SAVE_PROMPT,
-            data,
-        });
-    }
-}
-
-// Allow content scripts on subsequent pages (after redirect) to ask
-// if there is a recent submitted credential that still needs a save
-// prompt to be shown.
-async function handleGetPendingSavePrompt(
-    data: { url: string },
-    sendResponse: (response: any) => void
-) {
-    try {
-        if (
-            !pendingSavePrompt ||
-            Date.now() - pendingSavePrompt.createdAt > 30000 // older than 30s
-        ) {
-            pendingSavePrompt = null;
-            sendResponse({ pending: null });
-            return;
-        }
-
-        // Only return if it's for the same site (domain match)
-        if (!matchURL(pendingSavePrompt.url, data.url)) {
-            sendResponse({ pending: null });
-            return;
-        }
-
-        const pending = pendingSavePrompt;
-        // Clear so we don't repeatedly show on every page
-        pendingSavePrompt = null;
-        sendResponse({ pending });
-    } catch (e) {
-        console.error('ZeroVault: Failed to get pending save prompt', e);
-        sendResponse({ pending: null });
     }
 }
 
@@ -296,6 +202,13 @@ async function handleSaveCredential(data: { url: string; username: string; passw
     if (!sessionKey) return;
 
     const credentials = await getDecryptedCredentials();
+
+    // Check for duplicates
+    const exists = credentials.some(c => matchURL(c.url, data.url) && c.username === data.username);
+    if (exists) {
+        console.log('ZeroVault: Credential already exists, skipping save');
+        return;
+    }
 
     const newCredential: StoredCredential = {
         id: crypto.randomUUID(),
@@ -309,11 +222,7 @@ async function handleSaveCredential(data: { url: string; username: string; passw
 
     credentials.push(newCredential);
     await saveEncryptedCredentials(credentials);
-    console.log('ZeroVault: Credential saved', {
-        id: newCredential.id,
-        url: newCredential.url,
-        username: newCredential.username,
-    });
+    console.log('ZeroVault: Credential saved');
 }
 
 async function handleUpdateCredential(data: { url: string; username: string; password: string; credentialId: string }) {
@@ -371,41 +280,6 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
 async function handleBlacklistDomain(data: { domain: string }) {
     if (!data?.domain) return;
     await addToBlacklist(data.domain);
-}
-
-async function handleVerifyMasterPassword(
-    data: { masterPassword: string },
-    sendResponse: (response?: any) => void
-) {
-    try {
-        // Get stored salt and password hash
-        const stored = await chrome.storage.local.get([
-            'zerovault_master_salt',
-            'zerovault_master_password_hash'
-        ]);
-
-        if (!stored.zerovault_master_salt || !stored.zerovault_master_password_hash) {
-            sendResponse({ success: false, error: 'Vault not initialized' });
-            return;
-        }
-
-        // Derive the key using provided master password and stored salt
-        const derivedKey = await deriveMasterKey(data.masterPassword, stored.zerovault_master_salt as string);
-
-        // Verify if it matches the stored hash
-        if (derivedKey === stored.zerovault_master_password_hash as string) {
-            // Grant 10 minutes of autofill approval
-            autofillOtpApprovedUntil = Date.now() + 10 * 60 * 1000;
-            console.log('ZeroVault: Master password verified for autofill');
-            sendResponse({ success: true });
-        } else {
-            console.log('ZeroVault: Invalid master password for autofill');
-            sendResponse({ success: false, error: 'Invalid master password' });
-        }
-    } catch (e: any) {
-        console.error('ZeroVault: Verify master password failed', e);
-        sendResponse({ success: false, error: e?.message || 'Unknown error' });
-    }
 }
 
 // Auto-lock timer
@@ -485,120 +359,6 @@ async function getBlacklist(): Promise<string[]> {
         return (result[BLACKLIST_KEY] as string[]) || [];
     } catch (e) {
         return [];
-    }
-}
-
-// Handler for requesting unlock for save (from content script)
-async function handleRequestUnlockForSave(
-    data: { url: string; username: string; password: string },
-    sendResponse: (response: any) => void
-) {
-    try {
-        // Store the pending credential
-        pendingUnlockSave = {
-            url: data.url,
-            username: data.username,
-            password: data.password,
-        };
-
-        // Open the popup with unlock-save route
-        chrome.runtime.sendMessage({
-            type: MessageType.REQUEST_UNLOCK_FOR_SAVE,
-            data: pendingUnlockSave
-        });
-
-        // Open popup to the unlock-save page
-        chrome.action.openPopup(async () => {
-            // Get the current window and update URL if needed
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (tab?.id) {
-                // Just open popup - the popup will fetch pending credentials
-                sendResponse({ success: true });
-            }
-        });
-    } catch (e: any) {
-        console.error('ZeroVault: Failed to request unlock for save', e);
-        sendResponse({ success: false, error: e?.message || 'Failed to open popup' });
-    }
-}
-
-// Handler for getting pending unlock save credentials
-async function handleGetPendingUnlockSave(sendResponse: (response: any) => void) {
-    try {
-        if (pendingUnlockSave) {
-            sendResponse({ credential: pendingUnlockSave });
-            // Clear after sending (one-time use)
-            pendingUnlockSave = null;
-        } else {
-            sendResponse({ credential: null });
-        }
-    } catch (e) {
-        console.error('ZeroVault: Failed to get pending unlock save', e);
-        sendResponse({ credential: null });
-    }
-}
-
-// Handler for unlocking vault and saving credentials
-async function handleUnlockAndSaveCredential(
-    data: { masterPassword: string; credential: { url: string; username: string; password: string } },
-    sendResponse: (response: any) => void
-) {
-    try {
-        // First, unlock the vault
-        const stored = await chrome.storage.local.get([
-            'zerovault_master_salt',
-            'zerovault_master_password_hash'
-        ]);
-
-        if (!stored.zerovault_master_salt || !stored.zerovault_master_password_hash) {
-            sendResponse({ success: false, error: 'Vault not initialized' });
-            return;
-        }
-
-        // Derive the key using provided master password and stored salt
-        const derivedKey = await deriveMasterKey(data.masterPassword, stored.zerovault_master_salt as string);
-
-        // Verify if it matches the stored hash
-        if (derivedKey !== stored.zerovault_master_password_hash as string) {
-            console.log('ZeroVault: Invalid master password');
-            sendResponse({ success: false, error: 'Invalid master password' });
-            return;
-        }
-
-        // Unlock successful - set session key
-        sessionKey = derivedKey;
-        if (chrome.storage.session) {
-            await chrome.storage.session.set({ sessionKey: derivedKey });
-        }
-
-        console.log('ZeroVault: Vault unlocked, now saving credential');
-
-        // Now save the credential
-        const credentials = await getDecryptedCredentials();
-
-        const newCredential: StoredCredential = {
-            id: crypto.randomUUID(),
-            name: new URL(data.credential.url).hostname.replace('www.', ''),
-            url: data.credential.url,
-            username: data.credential.username,
-            password: data.credential.password,
-            notes: '',
-            createdAt: new Date().toISOString(),
-        };
-
-        credentials.push(newCredential);
-        await saveEncryptedCredentials(credentials);
-
-        console.log('ZeroVault: Credential saved after unlock', {
-            id: newCredential.id,
-            url: newCredential.url,
-            username: newCredential.username,
-        });
-
-        sendResponse({ success: true });
-    } catch (error: any) {
-        console.error('ZeroVault: Unlock and save error:', error);
-        sendResponse({ success: false, error: error.message });
     }
 }
 

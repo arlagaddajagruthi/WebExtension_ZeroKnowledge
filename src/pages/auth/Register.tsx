@@ -98,6 +98,9 @@ const Register = () => {
             // Note: This will be created in the user_metadata table when needed
             // The actual storage happens on first sync
 
+            // Sign out to force the user to log in as per the requested flow
+            await authService.signOut();
+
             navigate('/login');
         } catch (err) {
             console.error('Registration error:', err);
@@ -133,8 +136,13 @@ const Register = () => {
                     <ArrowLeft className="w-4 h-4" />
                 </Button>
                 <h1 className="text-xl font-bold">
-                    {step === 'account' ? 'Create Account' : 'Setup Master Password'}
+                    {step === 'account' ? 'Step 1: Create Account' : 'Step 2: Setup Master Password'}
                 </h1>
+            </div>
+
+            <div className="flex gap-2 mb-2">
+                <div className={cn("h-1.5 flex-1 rounded-full", step === 'account' || step === 'master' ? "bg-primary" : "bg-muted")} />
+                <div className={cn("h-1.5 flex-1 rounded-full", step === 'master' ? "bg-primary" : "bg-muted")} />
             </div>
 
             {step === 'account' ? (
@@ -195,7 +203,7 @@ const Register = () => {
                         {error && <p className="text-xs text-destructive font-medium">{error}</p>}
 
                         <Button type="submit" className="w-full" disabled={isLoading}>
-                            {isLoading ? 'Creating Account...' : 'Continue'}
+                            {isLoading ? 'Creating Account...' : 'Continue to Master Password'}
                         </Button>
                     </form>
                 </Card>

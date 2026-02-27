@@ -23,37 +23,13 @@ function init() {
   console.log('ZeroVault: Initializing content script');
 
   // Detect forms on page load
-setTimeout(() => {
+  setTimeout(() => {
     detectedForms = detectLoginForms();
     console.log(`ZeroVault: Found ${detectedForms.length} login forms`);
 
     if (detectedForms.length > 0) {
       handleFormsDetected(detectedForms);
     }
-
-    // Fallback: also inject bubbles for any password field on the page,
-    // even if our form detector missed it for some reason.
-    const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]')) as HTMLInputElement[];
-    passwordInputs.forEach((passwordField, index) => {
-      const form = passwordField.form || passwordField.closest('form') as HTMLFormElement | null;
-      if (!form) return;
-
-      const loginForm: LoginForm = {
-        form,
-        usernameField: null,
-        passwordField,
-        url: window.location.href,
-      };
-
-      // Keep track so submit handler can still work
-      detectedForms.push(loginForm);
-      injectAutofillBubble(loginForm);
-      console.log('ZeroVault: Injected fallback bubble on password field', index);
-    });
-
-    // After potential redirect, ask background if there is a recent
-    // form submission that still needs a save prompt for this site.
-    checkPendingSavePrompt();
   }, 1000);
 
   // Observe for dynamically added forms
@@ -68,25 +44,6 @@ setTimeout(() => {
 
   // Also listen for interactions that might trigger SPA navigation/submission
   document.addEventListener('input', handleInputMonitoring, true);
-}
-
-// If the site redirected immediately after login, the original save
-// prompt UI may have been destroyed. This lets us show it again on
-// the landing page using the last submitted credentials.
-async function checkPendingSavePrompt() {
-  try {
-    const response = await sendToBackground<{ pending?: { url: string; username: string; password: string } }>(
-      MessageType.GET_PENDING_SAVE_PROMPT,
-      { url: currentURL }
-    );
-
-    if (response?.pending) {
-      console.log('ZeroVault: Showing pending save prompt after redirect');
-      showSavePrompt(response.pending);
-    }
-  } catch (error) {
-    console.error('ZeroVault: Failed to check pending save prompt', error);
-  }
 }
 
 function handleInputMonitoring(e: Event) {
@@ -106,16 +63,25 @@ function handleInputMonitoring(e: Event) {
   }
 }
 
-// Handle detected forms - inject autofill UI (bubble) for each login form
-// The actual credentials are fetched on-demand when the user clicks the bubble,
-// so this works whether the vault is locked or unlocked.
+// Handle detected forms - request credentials and inject autofill UI
 async function handleFormsDetected(forms: LoginForm[]) {
   try {
-    forms.forEach((form) => {
-      injectAutofillBubble(form);
-    });
+    // Request saved credentials for this URL
+    const response = await sendToBackground<{ credentials: Credential[] }>(
+      MessageType.REQUEST_CREDENTIALS,
+      { url: currentURL }
+    );
+
+    if (response?.credentials && response.credentials.length > 0) {
+      console.log(`ZeroVault: Found ${response.credentials.length} saved credentials`);
+
+      // Inject autofill UI for each form
+      forms.forEach((form) => {
+        injectAutofillBubble(form, response.credentials);
+      });
+    }
   } catch (error) {
-    console.error('ZeroVault: Error injecting autofill bubble:', error);
+    console.error('ZeroVault: Error requesting credentials:', error);
   }
 }
 
@@ -263,134 +229,8 @@ function showMasterPasswordPrompt(): Promise<string | null> {
   });
 }
 
-// Show OTP prompt for autofill
-function showOtpPrompt(): Promise<string | null> {
-  return new Promise((resolve) => {
-    const existing = document.querySelector('.zerovault-otp-prompt');
-    if (existing) {
-      existing.remove();
-    }
-
-    const overlay = document.createElement('div');
-    overlay.className = 'zerovault-modal-overlay';
-    overlay.innerHTML = `
-      <div class="zerovault-modal">
-        <div class="zerovault-modal-header">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-          </svg>
-          <h2>Enter OTP</h2>
-        </div>
-        <div class="zerovault-modal-content">
-          <p>Enter the verification code sent to your email</p>
-          <input type="text" class="zerovault-otp-input" placeholder="000000" maxlength="6" autofocus />
-        </div>
-        <div class="zerovault-modal-actions">
-          <button class="zerovault-btn zerovault-btn-primary" data-action="verify">Verify</button>
-          <button class="zerovault-btn zerovault-btn-ghost" data-action="cancel">Cancel</button>
-        </div>
-      </div>
-    `;
-
-    const style = document.createElement('style');
-    style.textContent = `
-      .zerovault-otp-input {
-        width: 100%;
-        padding: 10px 12px;
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-        font-size: 24px;
-        letter-spacing: 8px;
-        text-align: center;
-        box-sizing: border-box;
-      }
-      .zerovault-otp-input:focus {
-        outline: none;
-        border-color: #3b82f6;
-      }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(overlay);
-
-    const otpInput = overlay.querySelector('.zerovault-otp-input') as HTMLInputElement;
-    overlay.querySelectorAll('.zerovault-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const action = (btn as HTMLElement).dataset.action;
-        if (action === 'verify') {
-          const token = otpInput.value;
-          overlay.remove();
-          resolve(token);
-        } else {
-          overlay.remove();
-          resolve(null);
-        }
-      });
-    });
-
-    otpInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        const token = otpInput.value;
-        overlay.remove();
-        resolve(token);
-      }
-    });
-  });
-}
-
-// Show auto-save notification
-function showAutoSaveNotification(data: { url: string; username: string; password: string }) {
-  const existing = document.querySelector('.zerovault-save-notification');
-  if (existing) {
-    existing.remove();
-  }
-
-  const notification = document.createElement('div');
-  notification.className = 'zerovault-save-notification';
-  notification.innerHTML = `
-    <div class="zerovault-notification-content">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-        <polyline points="22 4 12 14.01 9 11.01"></polyline>
-      </svg>
-      <span>Password saved for ${extractDomain(data.url)}</span>
-    </div>
-  `;
-
-  const style = document.createElement('style');
-  style.textContent = `
-    .zerovault-save-notification {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 999999;
-      animation: slideIn 0.3s ease-out;
-    }
-    .zerovault-notification-content {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background: #10b981;
-      border-radius: 12px;
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-      padding: 16px;
-      min-width: 250px;
-      font-size: 14px;
-      color: white;
-    }
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(notification);
-
-  setTimeout(() => {
-    if (document.body.contains(notification)) {
-      notification.remove();
-    }
-  }, 3000);
-}
-
 // Inject autofill bubble near password field
-function injectAutofillBubble(loginForm: LoginForm) {
+function injectAutofillBubble(loginForm: LoginForm, credentials: Credential[]) {
   const { passwordField } = loginForm;
 
   // Check if bubble already exists
@@ -489,14 +329,15 @@ function injectAutofillBubble(loginForm: LoginForm) {
   bubbleBtn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    showCredentialDropdown(bubble, loginForm);
+    showCredentialDropdown(bubble, loginForm, credentials);
   });
 }
 
 // Show credential dropdown
 function showCredentialDropdown(
   bubble: HTMLElement,
-  loginForm: LoginForm
+  loginForm: LoginForm,
+  credentials: Credential[]
 ) {
   // Remove existing dropdown
   const existing = bubble.querySelector('.zerovault-dropdown');
@@ -505,86 +346,42 @@ function showCredentialDropdown(
     return;
   }
 
-  // Create dropdown container
+  // Create dropdown
   const dropdown = document.createElement('div');
   dropdown.className = 'zerovault-dropdown';
-  bubble.appendChild(dropdown);
 
-  // Load credentials on demand, but gate autofill behind an OTP sent
-  // to the registered email.
-  (async () => {
-    try {
-      // 1) Ask background to send an OTP email (unless already approved)
-      const otpRequest = await sendToBackground<{ success: boolean; alreadyApproved?: boolean }>(
-        MessageType.REQUEST_AUTOFILL_OTP
-      );
+  credentials.forEach((cred) => {
+    const item = document.createElement('div');
+    item.className = 'zerovault-credential-item';
+    item.innerHTML = `
+      <div class="zerovault-credential-username">${cred.username}</div>
+      <div class="zerovault-credential-url">${cred.name || extractDomain(cred.url)}</div>
+    `;
 
-      if (!otpRequest?.success && !otpRequest?.alreadyApproved) {
-        alert('Could not send OTP for autofill. Please try again.');
-        dropdown.remove();
-        return;
-      }
+    item.addEventListener('click', async () => {
+      // ALWAYS show master password prompt as per requirement
+      const masterPassword = await showMasterPasswordPrompt();
 
-      // 2) If not already approved, prompt user to enter the OTP
-      if (!otpRequest.alreadyApproved) {
-        const token = await showOtpPrompt();
-        if (!token) {
-          dropdown.remove();
-          return;
-        }
+      if (masterPassword) {
+        // Send unlock request to background (this also verifies it)
+        const unlockResult = await sendToBackground<{ success: boolean }>(MessageType.UNLOCK_VAULT, { masterPassword });
 
-        const verifyResult = await sendToBackground<{ success: boolean }>(
-          MessageType.VERIFY_AUTOFILL_OTP,
-          { token }
-        );
-
-        if (!verifyResult?.success) {
-          alert('Invalid OTP. Cannot show saved passwords.');
-          dropdown.remove();
-          return;
-        }
-      }
-
-      // 3) After OTP is validated (or already approved), request credentials
-      const credResponse = await sendToBackground<{ credentials: Credential[] }>(
-        MessageType.REQUEST_CREDENTIALS,
-        { url: currentURL }
-      );
-      const credentials: Credential[] = credResponse?.credentials || [];
-
-      // If no credentials, show an empty-state message
-      if (!credentials.length) {
-        dropdown.innerHTML = `
-          <div class="zerovault-credential-item">
-            <div class="zerovault-credential-username">No saved credentials</div>
-            <div class="zerovault-credential-url">${extractDomain(currentURL)}</div>
-          </div>
-        `;
-        return;
-      }
-
-      // Populate dropdown with credentials
-      credentials.forEach((cred) => {
-        const item = document.createElement('div');
-        item.className = 'zerovault-credential-item';
-        item.innerHTML = `
-          <div class="zerovault-credential-username">${cred.username}</div>
-          <div class="zerovault-credential-url">${cred.name || extractDomain(cred.url)}</div>
-        `;
-
-        item.addEventListener('click', () => {
+        if (unlockResult?.success) {
           fillForm(loginForm, { username: cred.username, password: cred.password });
           dropdown.remove();
-          console.log('ZeroVault: Autofilled credentials after OTP verification');
-        });
+          console.log('ZeroVault: Autofilled credentials after unlock');
+        } else {
+          alert('Incorrect master password. Please try again.');
+        }
+      } else {
+        console.log('ZeroVault: Unlock cancelled');
+      }
+    });
 
-        dropdown.appendChild(item);
-      });
-    } catch (error) {
-      console.error('ZeroVault: Failed to load credentials for dropdown', error);
-      dropdown.remove();
-    }
-  })();
+    dropdown.appendChild(item);
+  });
+
+  bubble.appendChild(dropdown);
 
   // Close dropdown when clicking outside
   setTimeout(() => {
@@ -601,27 +398,10 @@ function showCredentialDropdown(
 async function handleFormSubmit(e: Event) {
   const form = e.target as HTMLFormElement;
 
-  // Prefer previously detected login form, but fall back to any form
-  // that contains a password field so we don't miss sites like GitHub.
-  let loginForm = detectedForms.find((lf) => lf.form === form);
+  // Find if this is a detected login form
+  const loginForm = detectedForms.find((lf) => lf.form === form);
 
-  // If this form was not part of detectedForms, build a temporary LoginForm
-  if (!loginForm) {
-    const passwordField = form.querySelector('input[type="password"]') as HTMLInputElement | null;
-    if (passwordField) {
-      loginForm = {
-        form,
-        usernameField: null,
-        passwordField,
-        url: window.location.href,
-      };
-    }
-  }
-
-  // If we have a form with a password field, treat it as a candidate
-  // login form. This is intentionally permissive so we always offer
-  // to save credentials on sites with custom markup.
-  if (loginForm) {
+  if (loginForm && isLoginForm(form)) {
     let credentials = extractFormCredentials(loginForm);
 
     // Fallback to last captured state if current extraction fails (e.g. fields cleared by SPA)
@@ -631,97 +411,18 @@ async function handleFormSubmit(e: Event) {
     }
 
     if (credentials) {
-      console.log('ZeroVault: Form submitted with credentials', credentials);
+      console.log('ZeroVault: Form submitted with credentials');
 
-      // Automatically save credentials (locked or unlocked) and show
-      // a non-interactive notification instead of a Save/Cancel prompt.
-      autoSaveCredential(credentials);
+      // Send to background script to check if we should save
+      try {
+        // Determine if this is a login or signup based on button text if we were ambiguous before
+        // For now, we assume if we have credentials, we want to offer to save/update
+        await sendToBackground(MessageType.FORM_SUBMITTED, credentials);
+      } catch (error) {
+        console.error('ZeroVault: Error sending form data:', error);
+      }
     }
   }
-}
-
-// Automatically save credentials by ensuring the vault is unlocked
-// (prompting for master password if needed), then sending SAVE_CREDENTIAL
-// to the background. Shows a small toast-style notification on success.
-// Now uses the extension popup instead of inline modal for master password.
-async function autoSaveCredential(data: { url: string; username: string; password: string }) {
-  try {
-    const vaultStatus = await sendToBackground<{ isLocked: boolean }>(MessageType.GET_VAULT_STATUS, {});
-
-    if (vaultStatus?.isLocked) {
-      // Show a notification that we're opening the secure prompt in the extension popup
-      showSecurePromptNotification(data);
-
-      // Send request to background to open popup with unlock form
-      await sendToBackground(MessageType.REQUEST_UNLOCK_FOR_SAVE, data);
-      console.log('ZeroVault: Requested unlock via popup');
-      return;
-    }
-
-    // Vault is unlocked, save directly
-    await sendToBackground(MessageType.SAVE_CREDENTIAL, data);
-    console.log('ZeroVault: Credential auto-saved');
-    showAutoSaveNotification(data);
-  } catch (error) {
-    console.error('ZeroVault: Auto-save failed', error);
-  }
-}
-
-// Show notification that we're opening the secure popup
-function showSecurePromptNotification(data: { url: string; username: string; password: string }) {
-  const existing = document.querySelector('.zerovault-secure-prompt-notification');
-  if (existing) {
-    existing.remove();
-  }
-
-  const notification = document.createElement('div');
-  notification.className = 'zerovault-secure-prompt-notification';
-  notification.innerHTML = `
-    <div class="zerovault-notification-content">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-      </svg>
-      <span>Opening secure prompt... Click the extension icon to enter your master password.</span>
-    </div>
-  `;
-
-  const style = document.createElement('style');
-  style.textContent = `
-    .zerovault-secure-prompt-notification {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 999999;
-      animation: slideIn 0.3s ease-out;
-    }
-    .zerovault-notification-content {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-      padding: 16px;
-      min-width: 320px;
-      max-width: 400px;
-      font-size: 14px;
-      color: #374151;
-    }
-    .zerovault-notification-content svg {
-      color: #3b82f6;
-      flex-shrink: 0;
-    }
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(notification);
-
-  // Auto-dismiss after 10 seconds
-  setTimeout(() => {
-    if (document.body.contains(notification)) {
-      notification.remove();
-    }
-  }, 10000);
 }
 
 // Listen for messages from background script
@@ -874,28 +575,27 @@ function showSavePrompt(data: { url: string; username: string; password: string 
         const vaultStatus = await sendToBackground<{ isLocked: boolean }>(MessageType.GET_VAULT_STATUS, {});
 
         if (vaultStatus?.isLocked) {
-          // Vault is locked - show notification to open extension popup
-          prompt.remove();
-          showSecurePromptNotification(data);
-          
-          // Send request to background to open popup with unlock form
-          await sendToBackground(MessageType.REQUEST_UNLOCK_FOR_SAVE, data);
-          console.log('ZeroVault: Requested unlock via popup');
+          const masterPassword = await showMasterPasswordPrompt();
+          if (masterPassword) {
+            const unlockResult = await sendToBackground<{ success: boolean }>(MessageType.UNLOCK_VAULT, { masterPassword });
+            if (unlockResult?.success) {
+              await sendToBackground(MessageType.SAVE_CREDENTIAL, data);
+              console.log('ZeroVault: Saved credential after unlock');
+            } else {
+              alert('Incorrect master password. Could not save credential.');
+            }
+          }
         } else {
-          // Vault is unlocked - save directly
           await sendToBackground(MessageType.SAVE_CREDENTIAL, data);
           console.log('ZeroVault: Saved credential');
-          showAutoSaveNotification(data);
-          prompt.remove();
         }
       } else if (action === 'never') {
         const domain = new URL(data.url).hostname.replace('www.', '');
         await sendToBackground(MessageType.BLACKLIST_DOMAIN, { domain });
         console.log('ZeroVault: Added to blacklist:', domain);
-        prompt.remove();
-      } else if (action === 'dismiss') {
-        prompt.remove();
       }
+
+      prompt.remove();
     });
   });
 
@@ -950,13 +650,16 @@ function showUpdatePrompt(data: { url: string; username: string; password: strin
         const vaultStatus = await sendToBackground<{ isLocked: boolean }>(MessageType.GET_VAULT_STATUS, {});
 
         if (vaultStatus?.isLocked) {
-          // Vault is locked - show notification to open extension popup
-          prompt.remove();
-          showSecurePromptNotification(data);
-          
-          // Send request to background to open popup with unlock form
-          await sendToBackground(MessageType.REQUEST_UNLOCK_FOR_SAVE, data);
-          console.log('ZeroVault: Requested unlock via popup for update');
+          const masterPassword = await showMasterPasswordPrompt();
+          if (masterPassword) {
+            const unlockResult = await sendToBackground<{ success: boolean }>(MessageType.UNLOCK_VAULT, { masterPassword });
+            if (unlockResult?.success) {
+              await sendToBackground(MessageType.UPDATE_CREDENTIAL, data);
+              console.log('ZeroVault: Updated credential after unlock');
+            } else {
+              alert('Incorrect master password. Could not update credential.');
+            }
+          }
         } else {
           await sendToBackground(MessageType.UPDATE_CREDENTIAL, data);
           console.log('ZeroVault: Updated credential');

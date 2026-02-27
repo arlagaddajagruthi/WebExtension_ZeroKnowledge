@@ -17,7 +17,6 @@ import AutoLockSettings from '../../pages/settings/subpages/AutoLockSettings';
 import ExportVault from '../../pages/settings/subpages/ExportVault';
 import ImportVault from '../../pages/settings/subpages/ImportVault';
 import BiometricSetup from '../../pages/settings/subpages/BiometricSetup';
-import UnlockAndSave from '../../pages/auth/UnlockAndSave';
 import { useAuthStore } from '../../store/authStore';
 
 const App = () => {
@@ -38,7 +37,6 @@ const App = () => {
                     <Route path="/register" element={<Register />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/reset" element={<ResetVault />} />
-                    <Route path="/unlock-save" element={<UnlockAndSave />} />
                     <Route
                         path="/vault"
                         element={isAuthenticated ? <VaultHome /> : <Navigate to="/login" />}

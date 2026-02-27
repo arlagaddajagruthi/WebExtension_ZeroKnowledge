@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Eye, EyeOff, AlertCircle, Mail } from 'lucide-react';
-import { Button, Input, Label, Card } from '../../components/ui';
+import { Button, Input, Label, Card, cn } from '../../components/ui';
 import { useAuthStore } from '../../store/authStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { deriveMasterKey } from '../../utils/crypto';
@@ -156,13 +156,18 @@ const Login = () => {
         <div className="p-6 space-y-8 flex flex-col justify-center min-h-[500px]">
             {step === 'account' ? (
                 <>
+                    <div className="flex gap-2 mb-6">
+                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
+                        <div className={cn("h-1.5 flex-1 rounded-full bg-muted")} />
+                    </div>
+
                     <div className="text-center space-y-2">
                         <div className="flex justify-center mb-4">
                             <div className="bg-primary/10 p-4 rounded-full">
                                 <Mail className="w-10 h-10 text-primary" />
                             </div>
                         </div>
-                        <h1 className="text-2xl font-bold">Sign In</h1>
+                        <h1 className="text-2xl font-bold">Step 1: Sign In</h1>
                         <p className="text-sm text-muted-foreground">Enter your account credentials</p>
                     </div>
 
@@ -210,7 +215,7 @@ const Login = () => {
                             )}
 
                             <Button type="submit" className="w-full h-11" disabled={isLoading}>
-                                {isLoading ? 'Signing In...' : 'Sign In'}
+                                {isLoading ? 'Signing In...' : 'Continue to Unlock'}
                             </Button>
                         </form>
 
@@ -229,13 +234,18 @@ const Login = () => {
                 </>
             ) : (
                 <>
+                    <div className="flex gap-2 mb-6">
+                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
+                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
+                    </div>
+
                     <div className="text-center space-y-2">
                         <div className="flex justify-center mb-4">
                             <div className="bg-primary/10 p-4 rounded-full">
                                 <Lock className="w-10 h-10 text-primary" />
                             </div>
                         </div>
-                        <h1 className="text-2xl font-bold">Unlock Vault</h1>
+                        <h1 className="text-2xl font-bold">Step 2: Unlock Vault</h1>
                         <p className="text-sm text-muted-foreground">Enter your master password to continue</p>
                     </div>
 

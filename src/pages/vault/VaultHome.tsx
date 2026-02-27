@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Plus, Search, LogOut, Key, ShieldCheck, Settings, Copy, Cloud, CloudOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button, Input, Card, cn, Toast, type ToastType } from '../../components/ui';
 import { useVaultStore } from '../../store/vaultStore';
 import { useAuthStore } from '../../store/authStore';
-import { loadCredentials } from '../../services/storage';
 import { useNavigate } from 'react-router-dom';
 import type { Credential } from '../../utils/types';
 
@@ -22,35 +21,11 @@ import type { Credential } from '../../utils/types';
  */
 const VaultHome = () => {
     const navigate = useNavigate();
-    const { credentials, syncStatus, setCredentials } = useVaultStore();
+    const { credentials, syncStatus } = useVaultStore();
     const logout = useAuthStore((state) => state.logout);
-    const encryptionKey = useAuthStore((state) => state.encryptionKey);
     const [search, setSearch] = useState('');
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null);
 
-    // Always reflect the latest credentials stored by the background script
-    useEffect(() => {
-        let isMounted = true;
-
-        const loadFromStorage = async () => {
-            if (!encryptionKey) return;
-
-            try {
-                const creds = await loadCredentials(encryptionKey);
-                if (isMounted) {
-                    setCredentials(creds);
-                }
-            } catch (error) {
-                console.error('VaultHome: Failed to load credentials from storage', error);
-            }
-        };
-
-        loadFromStorage();
-
-        return () => {
-            isMounted = false;
-        };
-    }, [encryptionKey, setCredentials]);
 
 
     const filteredCredentials = credentials.filter(c =>
