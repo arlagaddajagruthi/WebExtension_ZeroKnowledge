@@ -12,6 +12,14 @@ import SecurityAudit from './pages/security/SecurityAudit';
 import { useAuthStore } from './store/authStore';
 import './App.css';
 
+/**
+ * Simplified App Routing
+ * 
+ * Clean routing logic:
+ * - Welcome page for new users
+ * - Login/Register for authentication
+ * - Vault for authenticated users
+ */
 const App = () => {
     const { isRegistered, isAuthenticated } = useAuthStore();
 
@@ -19,6 +27,7 @@ const App = () => {
         <Router>
             <div className="min-h-screen bg-background text-foreground">
                 <Routes>
+                    {/* Root route - direct to appropriate page */}
                     <Route
                         path="/"
                         element={
@@ -26,10 +35,14 @@ const App = () => {
                                 !isAuthenticated ? <Navigate to="/login" /> : <Navigate to="/vault" />
                         }
                     />
+                    
+                    {/* Auth routes */}
                     <Route path="/welcome" element={<Welcome />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/reset" element={<ResetVault />} />
+                    
+                    {/* Protected routes */}
                     <Route
                         path="/vault"
                         element={isAuthenticated ? <VaultHome /> : <Navigate to="/login" />}
@@ -50,7 +63,10 @@ const App = () => {
                         path="/settings"
                         element={isAuthenticated ? <SettingsPage /> : <Navigate to="/login" />}
                     />
-                    <Route path="/security-audit" element={isAuthenticated ? <SecurityAudit /> : <Navigate to="/login" />} />
+                    <Route 
+                        path="/security-audit" 
+                        element={isAuthenticated ? <SecurityAudit /> : <Navigate to="/login" />} 
+                    />
                 </Routes>
             </div>
         </Router>

@@ -1,33 +1,36 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff, Info, Mail } from 'lucide-react';
-import { Button, Input, Label, Card, cn } from '../../components/ui';
+import { Eye, EyeOff, ArrowLeft, Mail, Info } from 'lucide-react';
+import { Button, Input, Card, Label } from '../../components/ui';
 import { useAuthStore } from '../../store/authStore';
-import { deriveMasterKey, generateSalt } from '../../utils/crypto';
-import { authService } from '../../services/supabase';
+import { authService, supabase } from '../../services/supabase';
+import { generateSalt, deriveMasterKey } from '../../utils/crypto';
+import { cn } from '../../utils/cn'; 
 
 /**
- * Register Component
- *
- * One-step or Two-step process for account registration and vault initialization.
+ * Simplified Register Component
+ * 
+ * Clean two-step process:
+ * 1. Account Setup: Email + password with Supabase
+ * 2. Master Password: Local vault encryption setup
  */
 const Register = () => {
     const navigate = useNavigate();
     const setRegistered = useAuthStore((state) => state.setRegistered);
 
-    // Email/Account fields
+    // Form states
     const [email, setEmail] = useState('');
     const [accountPassword, setAccountPassword] = useState('');
     const [confirmAccountPassword, setConfirmAccountPassword] = useState('');
-
-    // Master password fields
     const [masterPassword, setMasterPassword] = useState('');
     const [confirmMasterPassword, setConfirmMasterPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
+    const [showAccountPassword, setShowAccountPassword] = useState(false);
+    const [showMasterPassword, setShowMasterPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [step, setStep] = useState<'account' | 'master'>('account');
 
+    // Handle account setup
     const handleAccountSetup = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -49,13 +52,11 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            // Register with Supabase
             const result = await authService.signUp(email, accountPassword);
             if (!result.success) {
                 throw new Error((result.error as any)?.message || 'Registration failed');
             }
 
-            // Move to master password setup
             setStep('master');
         } catch (err: any) {
             setError(err.message || 'Registration failed. Please try again.');
@@ -64,6 +65,7 @@ const Register = () => {
         }
     };
 
+    // Handle master password setup
     const handleMasterPasswordSetup = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -80,27 +82,37 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            // Derive the master key
+            // Generate salt and derive master key
             const salt = generateSalt();
             const hash = await deriveMasterKey(masterPassword, salt);
 
-            // Store locally in Zustand
+            // Store in auth store
             setRegistered(true, hash, salt);
 
-            // Store in chrome.storage.local for background access
+            // Store in chrome.storage.local
             await chrome.storage.local.set({
                 zerovault_master_salt: salt,
                 zerovault_master_password_hash: hash,
                 zerovault_initialized: true
             });
 
-            // Store hash and salt on Supabase
-            // Note: This will be created in the user_metadata table when needed
-            // The actual storage happens on first sync
+            // Store in Supabase user metadata
+            try {
+                const sessionResult = await authService.getSession();
+                if (sessionResult.success && sessionResult.session?.user) {
+                    await supabase.auth.updateUser({
+                        data: {
+                            master_password_hash: hash,
+                            master_password_salt: salt
+                        }
+                    });
+                }
+            } catch (metadataError) {
+                console.warn('Failed to store master password metadata:', metadataError);
+            }
 
-            // Sign out to force the user to log in as per the requested flow
+            // Sign out to force proper login flow
             await authService.signOut();
-
             navigate('/login');
         } catch (err) {
             console.error('Registration error:', err);
@@ -110,6 +122,7 @@ const Register = () => {
         }
     };
 
+    // Password strength indicator
     const getPasswordStrength = (pwd: string) => {
         if (!pwd) return 0;
         let score = 0;
@@ -172,7 +185,7 @@ const Register = () => {
                             <div className="relative">
                                 <Input
                                     id="account-password"
-                                    type={showPassword ? 'text' : 'password'}
+                                    type={showAccountPassword ? 'text' : 'password'}
                                     placeholder="Enter a strong password"
                                     value={accountPassword}
                                     onChange={(e) => setAccountPassword(e.target.value)}
@@ -181,9 +194,9 @@ const Register = () => {
                                 <button
                                     type="button"
                                     className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
-                                    onClick={() => setShowPassword(!showPassword)}
+                                    onClick={() => setShowAccountPassword(!showAccountPassword)}
                                 >
-                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    {showAccountPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
                         </div>
@@ -222,7 +235,7 @@ const Register = () => {
                             <div className="relative">
                                 <Input
                                     id="master-password"
-                                    type={showPassword ? 'text' : 'password'}
+                                    type={showMasterPassword ? 'text' : 'password'}
                                     placeholder="Enter a strong password"
                                     value={masterPassword}
                                     onChange={(e) => setMasterPassword(e.target.value)}
@@ -231,9 +244,9 @@ const Register = () => {
                                 <button
                                     type="button"
                                     className="absolute right-3 top-2.5 text-muted-foreground hover:text-foreground"
-                                    onClick={() => setShowPassword(!showPassword)}
+                                    onClick={() => setShowMasterPassword(!showMasterPassword)}
                                 >
-                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    {showMasterPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
                             </div>
 

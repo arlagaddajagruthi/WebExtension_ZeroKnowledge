@@ -52,7 +52,7 @@ const Welcome = () => {
                 ) : (
                     <div className="space-y-3 animate-in fade-in zoom-in-95 duration-300">
                         <Button
-                            onClick={() => navigate('/login')}
+                            onClick={() => navigate('/login?force=true')}
                             className="w-full text-lg h-12 flex items-center justify-center gap-2"
                             variant="outline"
                         >

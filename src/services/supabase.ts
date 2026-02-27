@@ -3,11 +3,30 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+console.log('ZeroVault: Supabase URL:', SUPABASE_URL);
+console.log('ZeroVault: Supabase Key configured:', !!SUPABASE_ANON_KEY);
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     console.warn('ZeroVault: Supabase credentials not configured. Sync will not work.');
 }
 
 export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Test Supabase connection
+export const testSupabaseConnection = async () => {
+    try {
+        const { data, error } = await supabase.from('test_connection').select('id').single();
+        if (error) {
+            console.error('ZeroVault: Supabase connection test failed:', error);
+            return false;
+        }
+        console.log('ZeroVault: Supabase connection successful');
+        return true;
+    } catch (error) {
+        console.error('ZeroVault: Supabase connection error:', error);
+        return false;
+    }
+};
 
 /**
  * Authentication service

@@ -7,53 +7,47 @@ import { useVaultStore } from '../../store/vaultStore';
 import { deriveMasterKey } from '../../utils/crypto';
 import { sendToBackground, MessageType } from '../../utils/messaging';
 import { authService, syncService } from '../../services/supabase';
-import { supabase } from '../../services/supabase';
 
 /**
- * Login Component
- *
- * Two-step login process:
- * 1. Account Login: Email + password authentication with Supabase
- * 2. Vault Unlock: Master password to decrypt local vault
+ * Simplified Login Component
+ * 
+ * Clean two-step process:
+ * 1. Account Login: Email + password with Supabase
+ * 2. Vault Unlock: Master password for local vault
  */
 const Login = () => {
     const navigate = useNavigate();
-    const { isRegistered, masterPasswordHash, vaultSalt, setAuthenticated, setRegistered } = useAuthStore();
+    const { isRegistered, masterPasswordHash, vaultSalt, setAuthenticated } = useAuthStore();
     const { setLocked: setVaultLocked, setCredentials } = useVaultStore();
 
-    // Account login fields
+    // Form states
     const [email, setEmail] = useState('');
     const [accountPassword, setAccountPassword] = useState('');
-    const [showAccountPassword, setShowAccountPassword] = useState(false);
-
-    // Vault unlock fields
     const [vaultPassword, setVaultPassword] = useState('');
+    const [showAccountPassword, setShowAccountPassword] = useState(false);
     const [showVaultPassword, setShowVaultPassword] = useState(false);
-
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [step, setStep] = useState<'account' | 'vault'>('account');
     const [userId, setUserId] = useState<string | null>(null);
 
+    // Check for existing session on mount
     useEffect(() => {
-        // Check if there's an existing session
         const checkSession = async () => {
-            const result = await authService.getSession();
-            if (result.success && result.session?.user) {
-                setUserId(result.session.user.id);
-                setStep('vault');
-
-                // Load master password hash from Supabase
-                if (isRegistered && masterPasswordHash && vaultSalt) {
+            try {
+                const result = await authService.getSession();
+                if (result.success && result.session?.user) {
+                    setUserId(result.session.user.id);
                     setStep('vault');
                 }
-            } else if (!isRegistered) {
-                navigate('/welcome');
+            } catch (error) {
+                console.error('Session check failed:', error);
             }
         };
         checkSession();
-    }, [isRegistered, navigate, masterPasswordHash, vaultSalt]);
+    }, []);
 
+    // Handle account login
     const handleAccountLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -62,11 +56,9 @@ const Login = () => {
         try {
             if (!email || !accountPassword) {
                 setError('Email and password are required.');
-                setIsLoading(false);
                 return;
             }
 
-            // Sign in with Supabase
             const result = await authService.signIn(email, accountPassword);
             if (!result.success) {
                 throw new Error((result.error as any)?.message || 'Login failed');
@@ -84,6 +76,7 @@ const Login = () => {
         }
     };
 
+    // Handle vault unlock
     const handleVaultUnlock = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -91,58 +84,38 @@ const Login = () => {
 
         try {
             if (!masterPasswordHash || !vaultSalt) {
-                // First time login - derive and store
-                const hash = await deriveMasterKey(vaultPassword, vaultSalt || '');
+                setError('Vault not initialized. Please register first.');
+                return;
+            }
 
-                if (vaultSalt && hash === masterPasswordHash) {
-                    setAuthenticated(true, hash);
-                    sendToBackground(MessageType.SET_SESSION_KEY, { key: hash });
+            const hash = await deriveMasterKey(vaultPassword, vaultSalt);
+            
+            if (hash === masterPasswordHash) {
+                // Set authentication state
+                setAuthenticated(true, hash);
 
-                    import('../../services/storage').then(async ({ loadCredentials }) => {
-                        const creds = await loadCredentials(hash);
-                        setCredentials(creds);
-                    });
+                // Update background script
+                await chrome.storage.local.set({
+                    zerovault_master_salt: vaultSalt,
+                    zerovault_master_password_hash: hash,
+                    zerovault_initialized: true
+                });
 
-                    setVaultLocked(false);
-                    navigate('/vault');
-                } else {
-                    setError('Incorrect master password. Please try again.');
+                sendToBackground(MessageType.SET_SESSION_KEY, { key: hash });
+
+                // Load credentials
+                try {
+                    const { loadCredentials } = await import('../../services/storage');
+                    const creds = await loadCredentials(hash);
+                    setCredentials(creds);
+                } catch (loadError) {
+                    console.error('Failed to load credentials:', loadError);
                 }
+
+                setVaultLocked(false);
+                navigate('/vault');
             } else {
-                // Existing vault unlock
-                const hash = await deriveMasterKey(vaultPassword, vaultSalt);
-                if (hash === masterPasswordHash) {
-                    setAuthenticated(true, hash);
-
-                    // Sync with background and store in chrome.storage.local
-                    await chrome.storage.local.set({
-                        zerovault_master_salt: vaultSalt,
-                        zerovault_master_password_hash: hash,
-                        zerovault_initialized: true
-                    });
-
-                    sendToBackground(MessageType.SET_SESSION_KEY, { key: hash });
-
-                    // Load credentials from Supabase if available
-                    if (userId) {
-                        const credResult = await syncService.getCredentials(userId);
-                        if (credResult.success && credResult.credentials) {
-                            // TODO: Decrypt credentials from Supabase and merge with local
-                            console.log('Loaded credentials from Supabase:', credResult.credentials.length);
-                        }
-                    }
-
-                    // Also load from local storage
-                    import('../../services/storage').then(async ({ loadCredentials }) => {
-                        const creds = await loadCredentials(hash);
-                        setCredentials(creds);
-                    });
-
-                    setVaultLocked(false);
-                    navigate('/vault');
-                } else {
-                    setError('Incorrect master password. Please try again.');
-                }
+                setError('Incorrect master password. Please try again.');
             }
         } catch (err) {
             console.error(err);
@@ -157,8 +130,8 @@ const Login = () => {
             {step === 'account' ? (
                 <>
                     <div className="flex gap-2 mb-6">
-                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
-                        <div className={cn("h-1.5 flex-1 rounded-full bg-muted")} />
+                        <div className="h-1.5 flex-1 rounded-full bg-primary" />
+                        <div className="h-1.5 flex-1 rounded-full bg-muted" />
                     </div>
 
                     <div className="text-center space-y-2">
@@ -235,8 +208,8 @@ const Login = () => {
             ) : (
                 <>
                     <div className="flex gap-2 mb-6">
-                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
-                        <div className={cn("h-1.5 flex-1 rounded-full bg-primary")} />
+                        <div className="h-1.5 flex-1 rounded-full bg-primary" />
+                        <div className="h-1.5 flex-1 rounded-full bg-primary" />
                     </div>
 
                     <div className="text-center space-y-2">

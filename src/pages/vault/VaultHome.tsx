@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Search, LogOut, Key, ShieldCheck, Settings, Copy, Cloud, CloudOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button, Input, Card, cn, Toast, type ToastType } from '../../components/ui';
 import { useVaultStore } from '../../store/vaultStore';
@@ -21,10 +21,51 @@ import type { Credential } from '../../utils/types';
  */
 const VaultHome = () => {
     const navigate = useNavigate();
-    const { credentials, syncStatus } = useVaultStore();
+    const { credentials, syncStatus, setCredentials } = useVaultStore();
+    const { encryptionKey } = useAuthStore();
     const logout = useAuthStore((state) => state.logout);
     const [search, setSearch] = useState('');
     const [toast, setToast] = useState<{ message: string, type: ToastType } | null>(null);
+
+    // Load credentials from storage when component mounts or encryption key changes
+    useEffect(() => {
+        if (encryptionKey) {
+            loadCredentialsFromStorage();
+        }
+    }, [encryptionKey]);
+
+    // Function to load credentials from storage
+    const loadCredentialsFromStorage = async () => {
+        if (!encryptionKey) return;
+        
+        try {
+            console.log('VaultHome: Loading credentials with key:', encryptionKey?.substring(0, 20) + '...');
+            
+            const { loadCredentials } = await import('../../services/storage');
+            const creds = await loadCredentials(encryptionKey);
+            console.log('VaultHome: Loaded credentials from storage:', creds.length);
+            console.log('VaultHome: Credentials:', creds);
+            setCredentials(creds);
+        } catch (error) {
+            console.error('VaultHome: Failed to load credentials:', error);
+        }
+    };
+
+    // Manual refresh function
+    const refreshCredentials = async () => {
+        if (encryptionKey) {
+            try {
+                await loadCredentialsFromStorage();
+                const creds = await (await import('../../services/storage')).loadCredentials(encryptionKey);
+                setToast({ message: `Refreshed ${creds.length} credentials`, type: 'success' });
+            } catch (error) {
+                console.error('VaultHome: Failed to refresh credentials:', error);
+                setToast({ message: 'Failed to refresh credentials', type: 'error' });
+            }
+        } else {
+            setToast({ message: 'Vault is locked', type: 'error' });
+        }
+    };
 
 
 
@@ -76,6 +117,9 @@ const VaultHome = () => {
                         <div className="mr-2" title={`Sync Status: ${syncStatus}`}>
                             {getSyncIcon()}
                         </div>
+                        <Button variant="ghost" size="icon" onClick={refreshCredentials} className="h-8 w-8" title="Refresh credentials">
+                            <RefreshCw className="w-4 h-4" />
+                        </Button>
                         <Button variant="ghost" size="icon" onClick={() => navigate('/generator')} className="h-8 w-8">
                             <Key className="w-4 h-4" />
                         </Button>
@@ -128,7 +172,10 @@ const VaultHome = () => {
             {/* Footer Navigation */}
             <div className="border-t bg-card p-2 flex justify-around">
                 <NavButton active icon={<ShieldCheck className="w-5 h-5" />} label="Vault" onClick={() => navigate('/vault')} />
-                <NavButton icon={<Plus className="w-5 h-5" />} label="Add" onClick={() => navigate('/add-credential')} />
+                <NavButton icon={<Plus className="w-5 h-5" />} label="Add" onClick={() => {
+                    console.log('ZeroVault: Create New button clicked');
+                    navigate('/add-credential');
+                }} />
                 <NavButton icon={<Key className="w-5 h-5" />} label="Generator" onClick={() => navigate('/generator')} />
                 <NavButton icon={<Settings className="w-5 h-5" />} label="Settings" onClick={() => navigate('/settings')} />
             </div>

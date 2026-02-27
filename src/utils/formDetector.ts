@@ -104,16 +104,50 @@ export function fillForm(
 ): void {
     const { usernameField, passwordField } = loginForm;
 
-    if (usernameField) {
+    if (usernameField && passwordField) {
+        // Set the values directly
         usernameField.value = credentials.username;
-        // Trigger input event for React/Vue forms
+        passwordField.value = credentials.password;
+
+        // Use multiple methods to ensure the form detects the change
+        // Method 1: Direct value setting with events
+        usernameField.focus();
+        usernameField.value = credentials.username;
         usernameField.dispatchEvent(new Event('input', { bubbles: true }));
         usernameField.dispatchEvent(new Event('change', { bubbles: true }));
-    }
 
-    passwordField.value = credentials.password;
-    passwordField.dispatchEvent(new Event('input', { bubbles: true }));
-    passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+        passwordField.focus();
+        passwordField.value = credentials.password;
+        passwordField.dispatchEvent(new Event('input', { bubbles: true }));
+        passwordField.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Method 2: Try React/Vue compatible input setter
+        try {
+            const descriptor = Object.getOwnPropertyDescriptor(usernameField, 'value');
+            if (descriptor && descriptor.set) {
+                descriptor.set(credentials.username);
+            }
+        } catch (e) {
+            console.warn('Could not set username field value:', e);
+        }
+
+        try {
+            const passwordDescriptor = Object.getOwnPropertyDescriptor(passwordField, 'value');
+            if (passwordDescriptor && passwordDescriptor.set) {
+                passwordDescriptor.set(credentials.password);
+            }
+        } catch (e) {
+            console.warn('Could not set password field value:', e);
+        }
+
+        // Method 3: Fallback for React/Vue
+        setTimeout(() => {
+            usernameField.value = credentials.username;
+            passwordField.value = credentials.password;
+        }, 10);
+
+        console.log('ZeroVault: Filled form with username:', credentials.username);
+    }
 }
 
 /**

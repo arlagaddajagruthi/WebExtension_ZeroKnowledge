@@ -1,24 +1,33 @@
 // Type-safe Chrome messaging utilities
 
 export const MessageType = {
-    // Content Script → Background
-    FORM_DETECTED: 'FORM_DETECTED',
-    FORM_SUBMITTED: 'FORM_SUBMITTED',
-    REQUEST_CREDENTIALS: 'REQUEST_CREDENTIALS',
-    BLACKLIST_DOMAIN: 'BLACKLIST_DOMAIN',
+    // Vault operations
     GET_VAULT_STATUS: 'GET_VAULT_STATUS',
     UNLOCK_VAULT: 'UNLOCK_VAULT',
-
-    // Background → Content Script
-    CREDENTIALS_FOUND: 'CREDENTIALS_FOUND',
-    SHOW_SAVE_PROMPT: 'SHOW_SAVE_PROMPT',
-    SHOW_UPDATE_PROMPT: 'SHOW_UPDATE_PROMPT',
-
-    // Bidirectional
     SAVE_CREDENTIAL: 'SAVE_CREDENTIAL',
     UPDATE_CREDENTIAL: 'UPDATE_CREDENTIAL',
-    AUTOFILL_CREDENTIAL: 'AUTOFILL_CREDENTIAL',
-    SET_SESSION_KEY: 'SET_SESSION_KEY',
+    REQUEST_CREDENTIALS: 'REQUEST_CREDENTIALS',
+    DELETE_CREDENTIAL: 'DELETE_CREDENTIAL',
+    
+    // Form detection and submission
+    FORM_DETECTED: 'FORM_DETECTED',
+    FORM_SUBMITTED: 'FORM_SUBMITTED',
+    
+    // Save prompt (handle redirects)
+    GET_PENDING_SAVE_PROMPT: 'GET_PENDING_SAVE_PROMPT',
+    
+    // OTP for autofill
+    REQUEST_AUTOFILL_OTP: 'REQUEST_AUTOFILL_OTP',
+    VERIFY_AUTOFILL_OTP: 'VERIFY_AUTOFILL_OTP',
+    
+    // Master password verification for autofill
+    VERIFY_MASTER_PASSWORD: 'VERIFY_MASTER_PASSWORD',
+    VERIFY_AUTOFILL: 'VERIFY_AUTOFILL',
+    
+    // Unlock via popup (for saving credentials from webpage)
+    REQUEST_UNLOCK_FOR_SAVE: 'REQUEST_UNLOCK_FOR_SAVE',
+    UNLOCK_AND_SAVE_CREDENTIAL: 'UNLOCK_AND_SAVE_CREDENTIAL',
+    GET_PENDING_UNLOCK_SAVE: 'GET_PENDING_UNLOCK_SAVE',
 } as const;
 
 export type MessageTypeValue = typeof MessageType[keyof typeof MessageType];
@@ -45,6 +54,12 @@ export async function sendToBackground<T = any>(
     data?: any
 ): Promise<T> {
     return new Promise((resolve, reject) => {
+        // Check if extension context is valid
+        if (!chrome.runtime?.id) {
+            reject(new Error('Extension context invalidated'));
+            return;
+        }
+        
         chrome.runtime.sendMessage({ type, data }, (response) => {
             if (chrome.runtime.lastError) {
                 reject(chrome.runtime.lastError);
