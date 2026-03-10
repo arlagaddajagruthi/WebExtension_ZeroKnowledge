@@ -1,4 +1,10 @@
-// Form detection and parsing utilities
+/**
+ * formDetector.ts
+ * 
+ * Utilities for detecting, parsing, and filling login forms within the DOM.
+ * It identifies username/password fields and handles cross-framework compatibility 
+ * (React, Vue, etc.) for programmatic input.
+ */
 
 export interface LoginForm {
     form: HTMLFormElement;

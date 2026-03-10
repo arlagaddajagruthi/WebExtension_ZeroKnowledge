@@ -1,3 +1,10 @@
+/**
+ * background/index.ts
+ * 
+ * The extension's service worker (background script). It handles core logic that
+ * runs independently of the UI, including session management, message routing,
+ * vault encryption/decryption orchestration, and Supabase synchronization.
+ */
 import { MessageType, type Message } from '../../utils/messaging';
 import { matchURL } from '../../utils/urlMatcher';
 import { encryptVaultData, decryptVaultData, deriveMasterKey } from '../../utils/crypto';
@@ -169,12 +176,12 @@ async function saveEncryptedCredentials(credentials: StoredCredential[]) {
         const json = JSON.stringify(credentials);
         const encrypted = await encryptVaultData(json, sessionKey);
         await chrome.storage.local.set({ vault_credentials: encrypted });
-        
+
         // Also sync individual encrypted credentials to Supabase
         try {
             const userId = await getCurrentUserId();
             console.log('ZeroVault: Checking sync - User ID:', userId);
-            
+
             if (userId) {
                 // Encrypt individual credentials for Supabase storage
                 const encryptedCredentials = await Promise.all(
@@ -198,12 +205,12 @@ async function saveEncryptedCredentials(credentials: StoredCredential[]) {
                         };
                     })
                 );
-                
+
                 console.log('ZeroVault: Attempting to sync credentials to Supabase...');
                 const syncResult = await syncService.batchSyncCredentials(userId, encryptedCredentials);
                 console.log('ZeroVault: Sync result:', syncResult);
                 console.log('ZeroVault: Sync error details:', JSON.stringify(syncResult.error, null, 2));
-                
+
                 if (syncResult.success) {
                     console.log('ZeroVault: Credentials synced to Supabase successfully');
                 } else {
@@ -215,7 +222,7 @@ async function saveEncryptedCredentials(credentials: StoredCredential[]) {
         } catch (syncError) {
             console.warn('ZeroVault: Credential sync failed, but local save succeeded:', syncError);
         }
-        
+
     } catch (error) {
         console.error('ZeroVault: Encryption failed:', error);
     }
@@ -236,26 +243,26 @@ async function getCurrentUserId(): Promise<string | null> {
 async function syncVaultFromSupabase(userId: string, masterKey: string) {
     try {
         console.log('ZeroVault: Syncing vault from Supabase...');
-        
+
         const vaultResult = await vaultSyncService.getVault(userId);
         if (!vaultResult.success || !vaultResult.vault) {
             console.log('ZeroVault: No vault found in Supabase');
             return;
         }
-        
+
         // Decrypt the vault data
         const decrypted = await decryptVaultData(vaultResult.vault.encrypted_data, masterKey);
         const credentials = JSON.parse(decrypted);
-        
+
         // Save to local storage
-        await chrome.storage.local.set({ 
+        await chrome.storage.local.set({
             vault_credentials: vaultResult.vault.encrypted_data,
             zerovault_last_sync_time: Date.now(),
             zerovault_last_sync_version: vaultResult.vault.version
         });
-        
+
         console.log(`ZeroVault: Synced ${credentials.length} credentials from Supabase`);
-        
+
     } catch (error) {
         console.error('ZeroVault: Failed to sync vault from Supabase:', error);
     }
@@ -316,7 +323,7 @@ let pendingCredentials: Array<{ url: string; username: string; password: string 
 
 async function handleSaveCredential(data: { url: string; username: string; password: string }) {
     console.log('ZeroVault: Attempting to save credential:', { url: data.url, username: data.username });
-    
+
     try {
         // Always save credentials immediately, even if vault is locked
         // We'll encrypt with a temporary key and re-encrypt when vault is unlocked
@@ -324,7 +331,7 @@ async function handleSaveCredential(data: { url: string; username: string; passw
             console.log('ZeroVault: Vault is locked, saving with temporary encryption');
             // Generate a temporary key for immediate storage
             const tempKey = 'temp_' + Date.now();
-            
+
             // Get existing credentials or create empty array
             let credentials: any[] = [];
             try {
@@ -366,16 +373,16 @@ async function handleSaveCredential(data: { url: string; username: string; passw
             };
 
             credentials.push(newCredential);
-            
+
             // Encrypt with temporary key and save
             const json = JSON.stringify(credentials);
             const encrypted = await encryptVaultData(json, tempKey);
-            await chrome.storage.local.set({ 
+            await chrome.storage.local.set({
                 vault_credentials: encrypted,
                 temp_encryption_key: tempKey,
                 pending_save: true
             });
-            
+
             console.log('ZeroVault: Credential saved with temporary encryption');
             return { success: true, message: 'Credential saved temporarily' };
         }
@@ -432,13 +439,13 @@ async function handleUpdateCredential(data: { url: string; username: string; pas
 async function handleUnlockVault(data: { masterPassword: string }, sendResponse: (response?: any) => void) {
     try {
         console.log('ZeroVault: Unlock request received');
-        
+
         // Get stored salt and password hash
         const stored = await chrome.storage.local.get([
             'zerovault_master_salt',
             'zerovault_master_password_hash'
         ]);
-        
+
         console.log('ZeroVault: Stored data found:', {
             hasSalt: !!stored.zerovault_master_salt,
             hasHash: !!stored.zerovault_master_password_hash
@@ -462,7 +469,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
         const storedHash = stored.zerovault_master_password_hash as string;
         console.log('ZeroVault: Stored hash type:', typeof storedHash);
         console.log('ZeroVault: Stored hash:', storedHash?.substring(0, 20) + '...');
-        
+
         if (typeof storedHash === 'string') {
             try {
                 // Try to parse as JSON to check if it's JWK
@@ -489,7 +496,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
             isValid = derivedKey === storedHash;
             console.log('ZeroVault: Direct comparison');
         }
-        
+
         console.log('ZeroVault: Password verification result:', isValid);
         console.log('ZeroVault: String comparison result:', derivedKey === storedHash);
 
@@ -499,7 +506,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                 await chrome.storage.session.set({ sessionKey });
             }
             console.log('ZeroVault: Vault unlocked successfully');
-            
+
             // Sync vault from Supabase after successful unlock
             try {
                 const userId = await getCurrentUserId();
@@ -509,7 +516,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
             } catch (syncError) {
                 console.warn('ZeroVault: Failed to sync from Supabase, using local vault:', syncError);
             }
-            
+
             // Check if there are temporarily saved credentials to re-encrypt
             const storage = await chrome.storage.local.get(['vault_credentials', 'temp_encryption_key', 'pending_save']);
             if (storage.pending_save && storage.temp_encryption_key && storage.vault_credentials) {
@@ -518,10 +525,10 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                     // Decrypt with temporary key
                     const tempDecrypted = await decryptVaultData(storage.vault_credentials as string, storage.temp_encryption_key);
                     const tempCredentials = JSON.parse(tempDecrypted);
-                    
+
                     // Re-encrypt with master key
                     const reEncrypted = await encryptVaultData(JSON.stringify(tempCredentials), derivedKey);
-                    await chrome.storage.local.set({ 
+                    await chrome.storage.local.set({
                         vault_credentials: reEncrypted,
                         temp_encryption_key: null,
                         pending_save: false
@@ -531,7 +538,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                     console.error('ZeroVault: Failed to re-encrypt credentials:', error);
                 }
             }
-            
+
             // Save any pending credentials that were stored while vault was locked
             if (pendingCredentials.length > 0) {
                 console.log(`ZeroVault: Saving ${pendingCredentials.length} pending credentials`);
@@ -567,7 +574,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                 }
                 pendingCredentials = []; // Clear pending credentials
             }
-            
+
             sendResponse({ success: true });
         } else {
             console.log('ZeroVault: Invalid master password');
@@ -639,10 +646,10 @@ async function getAutoLockTimeout(): Promise<number> {
 
 function resetAutoLockTimer() {
     if (autoLockTimer) clearTimeout(autoLockTimer);
-    
+
     getAutoLockTimeout().then(timeout => {
         if (timeout === -1) return; // Never lock
-        
+
         autoLockTimer = setTimeout(() => {
             console.log('ZeroVault: Auto-locking');
             sessionKey = null;

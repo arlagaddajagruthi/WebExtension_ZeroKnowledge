@@ -1,3 +1,9 @@
+/**
+ * vaultStore.ts
+ * 
+ * Zustand store for managing the vault's credentials and lock status.
+ * Orchestrates CRUD operations and synchronization with the backend.
+ */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { VaultState, Credential, SyncStatus } from '../utils/types';

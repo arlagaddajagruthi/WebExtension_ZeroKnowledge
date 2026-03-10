@@ -18,24 +18,35 @@
 ## 📋 Table of Contents
 
 - [Introduction](#-introduction)
+- [Project Flow](#-project-flow)
 - [Architecture](#%EF%B8%8F-architecture)
 - [Security](#%EF%B8%8F-security)
 - [Features](#-features)
 - [Tech Stack](#%EF%B8%8F-tech-stack)
 - [Getting Started](#-getting-started)
 - [Project Structure](#-project-structure)
-- [Contributing](#-contributing)
 - [License](#-license)
 
 ## 📖 Introduction
 
-**ZeroVault** is a modern browser extension engineered to provide top-tier security without compromising on user experience. Unlike traditional password managers that store your data on centralized servers, ZeroVault adopts a **Local-First** and **Zero-Knowledge** architecture.
+**ZeroVault** is a high-security browser extension designed to provide a seamless password management experience without compromising user privacy. It leverages a **Zero-Knowledge** architecture, ensuring that sensitive data (passwords, notes, etc.) is always encrypted on the client side before being persisted or synced.
 
-Your passwords are encrypted **on your device** using your master password. We never see your password, your keys, or your data. You are the only one who holds the keys to your digital vault.
+The master password never leaves the browser. Key derivation and encryption/decryption are handled entirely locally using the native **Web Crypto API**.
+
+## 🔄 Project Flow
+
+ZeroVault manages the entire lifecycle of your credentials:
+
+1.  **Onboarding**: User creates an account (Supabase) and a Master Password.
+2.  **Vault Initialization**: A unique salt is generated, and a master key is derived (PBKDF2). This key is used to create an initial encrypted vault.
+3.  **Credential Management**: Users add credentials through the UI or via automatic form detection.
+4.  **Secure Storage**: Credentials are encrypted (AES-GCM) and saved to `chrome.storage.local`.
+5.  **Autofill**: When a login form is detected, the content script requests credentials. If the vault is unlocked, the background script decrypts the relevant entry and injects it into the form.
+6.  **Sync**: The encrypted vault is synchronized with Supabase, allowing for multi-device access while maintaining zero-knowledge integrity.
 
 ## 🏗️ Architecture
 
-ZeroVault operates entirely within your browser environment. The extension is composed of three main isolated contexts that communicate securely.
+The extension consists of three isolated contexts communicating via message passing:
 
 ```mermaid
 graph TD
@@ -46,218 +57,94 @@ graph TD
         Vault[("Encrypted Storage\n(Chrome Local Storage)")]
     end
 
-    subgraph "External World"
-        Web["Web Page\n(Login Forms)"]
+    subgraph "External Cloud"
+        DB[("Supabase\n(Encrypted Vault Sync)")]
     end
 
     User(("User")) <--> UI
     UI <-->|Messages| BG
     BG <-->|Read/Write Encrypted Data| Vault
-    CS <-->|Detect Forms / Autofill| Web
+    BG <-->|Sync Encrypted Blob| DB
+    CS <-->|Detect Forms / Autofill| Web["Web Page"]
     CS <-->|Request Credentials| BG
-```
-
-### Data Flow
-1.  **Unlock**: User enters Master Password -> Key is derived in memory (Session).
-2.  **Storage**: Credentials are encrypted with AES-GCM before saving to `chrome.storage.local`.
-3.  **Autofill**: Content Script detects a login form -> Requests credentials from Background -> Background decrypts using Session Key -> Sends back to Content Script -> Autofill.
-
-### Domain Verification Flow
-
-```mermaid
-sequenceDiagram
-    participant Extension
-    participant DomainVerifier
-    participant ClientVault
-    participant Audit
-
-    Extension->>DomainVerifier: Canonicalize + Verify Domain
-
-    alt Valid Domain
-        DomainVerifier-->>Extension: TRUSTED (Green)
-        Extension->>ClientVault: Request Password
-        ClientVault-->>Extension: Password
-        Extension->>Extension: Autofill
-        Extension->>Extension: Clear Clipboard Timer
-    else Invalid
-        DomainVerifier-->>Extension: BLOCKED (Red)
-        Extension->>Audit: Log Blocked Attempt
-    end
 ```
 
 ## 🛡️ Security
 
-ZeroVault uses industry-standard cryptographic primitives provided by the **Web Crypto API**.
-
-### 1. Key Derivation (PBKDF2)
-Your Master Password is never stored. Instead, we derive a cryptographic key from it using **PBKDF2** (Password-Based Key Derivation Function 2) with a unique salt for each user.
-
-```typescript
-// src/utils/crypto.ts
-export const deriveMasterKey = async (password: string, salt: string): Promise<string> => {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        enc.encode(password),
-        { name: "PBKDF2" },
-        false,
-        ["deriveBits", "deriveKey"]
-    );
-
-    const key = await crypto.subtle.deriveKey(
-        {
-            name: "PBKDF2",
-            salt: Uint8Array.from(atob(salt), c => c.charCodeAt(0)),
-            iterations: 100000, // High iteration count for security
-            hash: "SHA-256"
-        },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
-        true,
-        ["encrypt", "decrypt"]
-    );
-    // ... export key as JWK
-};
-```
-
-### 2. Encryption (AES-GCM)
-All vault data is encrypted using **AES-GCM** (Advanced Encryption Standard - Galois/Counter Mode) with a 256-bit key. GCM mode provides both confidentiality and data integrity (authentication).
+### Key Architecture Principles
+*   **Zero-Knowledge**: The server only stores encrypted blobs. It never has access to the master password or plain-text data.
+*   **PBKDF2 Derivation**: 100,000 iterations with a cryptographically secure random salt to prevent brute-force attacks.
+*   **AES-256-GCM**: Industry-standard symmetric encryption for data-at-rest with built-in integrity checking.
+*   **Volatile Session Keys**: The derived master key is stored only in `chrome.storage.session`, which is cleared when the browser closes or the vault is locked.
 
 ## ✨ Features
 
--   🔐 **Zero-Knowledge Encryption**: Your data is encrypted before it leaves your input field.
--   📝 **Credential Management**: Create, Read, Update, and Delete login credentials.
--   ⚡ **Smart Autofill**: Automatically detects login forms and offers to fill them securely.
--   🎨 **Modern UI**: A beautiful, dark-mode enabled interface built with **Shadcn UI** principles.
--   🛡️ **Security Dashboard**: Analyzes password strength and reuse to keep you safe.
--   🎲 **Password Generator**: Built-in CSPRNG password generator.
--   ⏱️ **Auto-Lock**: Automatically locks the vault after a period of inactivity.
--   🔄 **Sync Ready**: Architecture designed to support encrypted sync (Mock implementation included).
+-   🔐 **Zero-Knowledge Encryption**: End-to-end security for all data.
+-   ⚡ **Intelligent Autofill**: Advanced form detection with support for modern web frameworks (React, Vue, etc.).
+-   🔄 **Encrypted Sync**: Secure bidirectional synchronization via Supabase.
+-   🛡️ **Breach Monitoring**: Integration with HaveIBeenPwned API (using k-anonymity) to check for compromised passwords.
+-   🖐️ **Biometric Support**: WebAuthn/FIDO2 integration for platform-native authentication (Fingerprint, FaceID).
+-   🎨 **Premium UI**: Dark-mode primary design built with Tailwind CSS and Radix UI primitives.
+-   🎲 **Strong Generator**: Custom password generator with configurable complexity.
+-   ⏱️ **Auto-Lock**: Configurable security timer to clear session keys after inactivity.
 
 ## 🛠️ Tech Stack
 
-| Category | Technology | Purpose |
-|----------|------------|---------|
-| **Core** | [React 19](https://react.dev/) | UI Library |
-| **Language** | [TypeScript](https://www.typescriptlang.org/) | Type Safety |
-| **Build Tool** | [Vite](https://vitejs.dev/) | Fast Bundling |
-| **Extension** | [CRXJS](https://crxjs.dev/vite-plugin) | Vite Plugin for Chrome Extensions |
-| **Styling** | [TailwindCSS](https://tailwindcss.com/) | Utility-First Styling |
-| **State** | [Zustand](https://zustand-demo.pmnd.rs/) | Global State Management |
-| **Routing** | [React Router](https://reactrouter.com/) | View Navigation |
-| **Icons** | [Lucide React](https://lucide.dev/) | Consistent Iconography |
-| **Crypto** | [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) | Native Browser Security |
-
-
-## 🧪 Testing & Quality Assurance
-
-ZeroVault maintains high code quality standards through a comprehensive unit testing suite powered by **Vitest** and **React Testing Library**.
-
-### Testing Strategy
-
--   **Unit Tests**: Verify the logic of individual functions, hooks, and utilities (e.g., `crypto.ts`, `formDetector.ts`).
--   **Component Tests**: Ensure UI components render correctly and interact as expected (e.g., `VaultHome.tsx`, `PasswordGenerator.tsx`).
--   **Integration Tests**: Validate the interaction between stores and services (e.g., `VaultStore` with `chrome.storage`).
-
-### Running Tests
-
-To execute the test suite, use the following commands:
-
-```bash
-# Run all tests once
-npm test
-
-# Run tests in watch mode (interactive)
-npm run test:watch
-
-# Generate code coverage report
-npm run test:coverage
-```
-
-### Coverage Goals
-
-We aim for high test coverage across critical paths, particularly in:
--   **Cryptography Modules**: Ensuring key derivation and encryption/decryption are flawless.
--   **Vault Operations**: Verifying CRUD actions and data integrity.
--   **Authentication Flow**: guaranteeing secure unlock and locking mechanisms.
-
----
+| Category | Technology |
+|----------|------------|
+| **Core** | [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/) |
+| **Styling** | [TailwindCSS](https://tailwindcss.com/), [Lucide Icons](https://lucide.dev/) |
+| **State** | [Zustand](https://zustand-demo.pmnd.rs/) with Persistence |
+| **Backend** | [Supabase](https://supabase.com/) (Auth & Storage) |
+| **Crypto** | [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API) |
+| **Build Tool**| [Vite](https://vitejs.dev/) + [CRXJS](https://crxjs.dev/) |
 
 ## 🚀 Getting Started
-
-### Prerequisites
--   Node.js (v18 or higher)
--   npm (v9 or higher)
 
 ### Installation
 
 1.  **Clone the Repository**
     ```bash
-    git clone https://github.com/yourusername/zerovault.git
-    cd zerovault
+    git clone https://github.com/arlagaddajagruthi/WebExtension_ZeroKnowledge.git
+    cd WebExtension_ZeroKnowledge
     ```
 
-2.  **Install Dependencies**
+2.  **Environment Setup**
+    Create a `.env` file in the root with your Supabase credentials:
+    ```env
+    VITE_SUPABASE_URL=your_project_url
+    VITE_SUPABASE_ANON_KEY=your_anon_key
+    ```
+
+3.  **Install & Build**
     ```bash
     npm install
-    ```
-
-3.  **Build the Project**
-    ```bash
     npm run build
     ```
-    This will generate a `dist` folder containing the compiled extension.
 
-### Loading into Chrome / Edge / Brave
-
-1.  Open your browser and navigate to `chrome://extensions`.
-2.  Toggle **Developer Mode** in the top right corner.
-3.  Click **Load unpacked**.
-4.  Select the `dist` folder from your project directory.
-5.  ZeroVault is now installed! Pin it to your toolbar for easy access.
-
-### Development Mode
-To run in watch mode with Hot Module Replacement (HMR):
-```bash
-npm run dev
-```
+4.  **Load Extension**
+    - Open Chrome and go to `chrome://extensions`.
+    - Enable **Developer Mode**.
+    - Click **Load unpacked** and select the `dist` folder.
 
 ## 📂 Project Structure
 
-```
+```bash
 src/
-├── components/         # Reusable UI components (Buttons, Inputs, Modals)
-├── extension/          # Extension-specific entry points
-│   ├── background/     # Service Worker (encryption, storage handling)
-│   ├── contentScript/  # DOM injection (autofill, form detection)
-│   └── popup/          # Main extension UI entry
-├── hooks/              # Custom React hooks (useToast, etc.)
-├── pages/              # Application Views
-│   ├── auth/           # Login, Register, Welcome screens
-│   ├── generator/      # Password Generator view
-│   ├── settings/       # Settings & subpages
-│   └── vault/          # Main Vault Dashboard
-├── services/           # Business logic services (Storage, Sync)
-├── store/              # Zustand state stores (AuthStore, VaultStore)
-└── utils/              # Core utilities (Crypto, Types, URL Matching)
+├── extension/          # Service Worker, Content Scripts, Entry Points
+├── services/           # Core Logic (Auth, Sync, Breach Check, WebAuthn)
+├── store/              # State Management (Zustand)
+├── utils/              # Cryptography, Messaging, Form Detection, Types
+├── components/         # Shadcn-based UI Components
+├── pages/              # Application Views (Vault, Settings, Auth)
+└── App.tsx             # Main Routing and Logic
 ```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1.  Fork the project.
-2.  Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4.  Push to the branch (`git push origin feature/AmazingFeature`).
-5.  Open a Pull Request.
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License.
 
 ---
-
 <div align="center">
-  <sub>Built with ❤️ by the ZeroVault Team.</sub>
+  <sub>Modern Security. Zero Compromise.</sub>
 </div>

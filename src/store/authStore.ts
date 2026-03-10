@@ -1,3 +1,9 @@
+/**
+ * authStore.ts
+ * 
+ * Zustand store for managing global authentication state. It persists 
+ * registration info and manages the current authentication session.
+ */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { AuthState } from '../utils/types';

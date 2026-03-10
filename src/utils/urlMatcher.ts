@@ -1,5 +1,10 @@
-// URL matching utilities for credential lookup
-// Handles domain extraction, subdomain normalization, and URL matching
+/**
+ * urlMatcher.ts
+ * 
+ * URL matching and domain extraction utilities. It handles registrable domain 
+ * extraction and supports equivalent domain groups (e.g., matching 'google.com' 
+ * with 'youtube.com').
+ */
 
 /**
  * List of equivalent domains that share the same credentials

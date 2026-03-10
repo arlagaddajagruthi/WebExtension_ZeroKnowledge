@@ -1,3 +1,9 @@
+/**
+ * supabase.ts
+ * 
+ * Configures the Supabase client and provides specialized services for authentication,
+ * credential sync, vault storage, and device management.
+ */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL || '';

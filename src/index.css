@@ -1,3 +1,9 @@
+/**
+ * index.css
+ * 
+ * Global stylesheet for the application. It includes Tailwind CSS directives
+ * and defines the CSS variables for the light and dark themes (Shadcn UI system).
+ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

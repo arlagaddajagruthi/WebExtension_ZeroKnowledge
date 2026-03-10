@@ -1,8 +1,9 @@
 /**
- * Breach Monitoring Service
+ * breach-monitoring.ts
  * 
- * Uses HaveIBeenPwned API to check if passwords have been exposed in data breaches.
- * Uses k-anonymity to maintain privacy - only first 5 chars of SHA-1 hash sent to server.
+ * Provides services for monitoring password security. It integrates with the 
+ * HaveIBeenPwned API using k-anonymity to check for compromised credentials without 
+ * exposing the actual passwords.
  */
 
 import type { Credential } from '../utils/types';

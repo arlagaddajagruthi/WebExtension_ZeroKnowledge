@@ -1,3 +1,9 @@
+/**
+ * options/App.tsx
+ * 
+ * The main dashboard for the extension's options page. It provides a full-page
+ * interface for managing the vault, settings, and viewing security audits.
+ */
 import React, { useState } from 'react';
 import {
     ShieldCheck,

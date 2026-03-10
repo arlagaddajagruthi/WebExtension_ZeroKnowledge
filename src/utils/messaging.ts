@@ -1,4 +1,10 @@
-// Type-safe Chrome messaging utilities
+/**
+ * messaging.ts
+ * 
+ * Type-safe Chrome messaging utilities. It defines the message types and 
+ * provides helper functions for communication between content scripts, 
+ * popups, and the background service worker.
+ */
 
 export const MessageType = {
     // Vault operations
@@ -8,22 +14,22 @@ export const MessageType = {
     UPDATE_CREDENTIAL: 'UPDATE_CREDENTIAL',
     REQUEST_CREDENTIALS: 'REQUEST_CREDENTIALS',
     DELETE_CREDENTIAL: 'DELETE_CREDENTIAL',
-    
+
     // Form detection and submission
     FORM_DETECTED: 'FORM_DETECTED',
     FORM_SUBMITTED: 'FORM_SUBMITTED',
-    
+
     // Save prompt (handle redirects)
     GET_PENDING_SAVE_PROMPT: 'GET_PENDING_SAVE_PROMPT',
-    
+
     // OTP for autofill
     REQUEST_AUTOFILL_OTP: 'REQUEST_AUTOFILL_OTP',
     VERIFY_AUTOFILL_OTP: 'VERIFY_AUTOFILL_OTP',
-    
+
     // Master password verification for autofill
     VERIFY_MASTER_PASSWORD: 'VERIFY_MASTER_PASSWORD',
     VERIFY_AUTOFILL: 'VERIFY_AUTOFILL',
-    
+
     // Unlock via popup (for saving credentials from webpage)
     REQUEST_UNLOCK_FOR_SAVE: 'REQUEST_UNLOCK_FOR_SAVE',
     UNLOCK_AND_SAVE_CREDENTIAL: 'UNLOCK_AND_SAVE_CREDENTIAL',
@@ -59,7 +65,7 @@ export async function sendToBackground<T = any>(
             reject(new Error('Extension context invalidated'));
             return;
         }
-        
+
         chrome.runtime.sendMessage({ type, data }, (response) => {
             if (chrome.runtime.lastError) {
                 reject(chrome.runtime.lastError);

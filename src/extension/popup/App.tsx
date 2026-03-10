@@ -1,3 +1,9 @@
+/**
+ * popup/App.tsx
+ * 
+ * The main entry component for the extension's popup UI. It defines the routing
+ * and layout specifically for the 380x600px popup window.
+ */
 import React from 'react';
 import { MemoryRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Welcome from '../../pages/auth/Welcome';

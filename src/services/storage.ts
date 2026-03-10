@@ -1,3 +1,9 @@
+/**
+ * storage.ts
+ * 
+ * Utility functions for interacting with local extension storage (chrome.storage).
+ * Handles the encryption and persistence of vault credentials.
+ */
 import { encryptVaultData, decryptVaultData } from '../utils/crypto';
 import type { Credential } from '../utils/types';
 

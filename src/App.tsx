@@ -1,3 +1,10 @@
+/**
+ * App.tsx
+ * 
+ * Main application component that defines the routing logic for the ZeroVault extension.
+ * It manages the navigation between auth pages (Welcome, Login, Register) and
+ * protected vault pages (VaultHome, CredentialForm, Settings, etc.).
+ */
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Welcome from './pages/auth/Welcome';
@@ -35,13 +42,13 @@ const App = () => {
                                 !isAuthenticated ? <Navigate to="/login" /> : <Navigate to="/vault" />
                         }
                     />
-                    
+
                     {/* Auth routes */}
                     <Route path="/welcome" element={<Welcome />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/reset" element={<ResetVault />} />
-                    
+
                     {/* Protected routes */}
                     <Route
                         path="/vault"
@@ -63,9 +70,9 @@ const App = () => {
                         path="/settings"
                         element={isAuthenticated ? <SettingsPage /> : <Navigate to="/login" />}
                     />
-                    <Route 
-                        path="/security-audit" 
-                        element={isAuthenticated ? <SecurityAudit /> : <Navigate to="/login" />} 
+                    <Route
+                        path="/security-audit"
+                        element={isAuthenticated ? <SecurityAudit /> : <Navigate to="/login" />}
                     />
                 </Routes>
             </div>

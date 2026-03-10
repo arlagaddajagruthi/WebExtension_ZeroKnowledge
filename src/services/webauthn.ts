@@ -1,8 +1,9 @@
 /**
- * WebAuthn Service for Biometric Authentication
+ * webauthn.ts
  * 
- * Implements FIDO2/WebAuthn for secure biometric authentication
- * (fingerprint, face recognition, etc.)
+ * Handles biometric authentication flows using the WebAuthn (FIDO2) API.
+ * It allows users to register and authenticate using device-native platform 
+ * authenticators like fingerprint or face recognition.
  */
 
 export interface WebAuthnCredential {
@@ -113,7 +114,7 @@ export async function authenticateBiometric(
                 challenge: new Uint8Array(32),
                 allowCredentials: [
                     {
-                        id: typeof credential.id === 'string' 
+                        id: typeof credential.id === 'string'
                             ? new TextEncoder().encode(credential.id)
                             : credential.id as ArrayBuffer,
                         type: 'public-key',
@@ -161,7 +162,7 @@ export async function authenticateBiometric(
  */
 export function isWebAuthnAvailable(): boolean {
     return window.PublicKeyCredential !== undefined &&
-           navigator.credentials !== undefined;
+        navigator.credentials !== undefined;
 }
 
 /**

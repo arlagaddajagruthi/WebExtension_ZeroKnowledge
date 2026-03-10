@@ -1,3 +1,10 @@
+/**
+ * contentScript/index.ts
+ * 
+ * The content script that is injected into every web page. It is responsible for
+ * detecting login forms, communicating with the background script to fetch
+ * credentials, and injecting the autofill UI/bubbles into the page.
+ */
 import {
   detectLoginForms,
   extractFormCredentials,
@@ -240,14 +247,14 @@ function showMasterPasswordPrompt(): Promise<string | null> {
 
     // Handle button clicks
     const passwordInput = overlay.querySelector('.zerovault-master-pwd-input') as HTMLInputElement;
-    
+
     if (!passwordInput) {
       console.error('ZeroVault: Password input not found in modal');
       overlay.remove();
       resolve(null);
       return;
     }
-    
+
     overlay.querySelectorAll('.zerovault-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const action = (btn as HTMLElement).dataset.action;
@@ -597,7 +604,7 @@ function injectAutofillBubble(loginForm: LoginForm, credentials: Credential[]) {
         visibility: visible !important;
         pointer-events: auto !important;
       `;
-      
+
       const rect = addedBubble.getBoundingClientRect();
       console.log('ZeroVault: Bubble position:', {
         width: rect.width,
@@ -649,11 +656,11 @@ function showCredentialDropdown(
     item.addEventListener('click', async () => {
       // Use master password verification for autofill
       const masterPassword = await showMasterPasswordPrompt();
-      
+
       if (masterPassword) {
         // Send master password to background for verification
         const verifyResult = await sendToBackground<{ success: boolean }>(MessageType.VERIFY_MASTER_PASSWORD, { masterPassword });
-        
+
         if (verifyResult?.success) {
           // Autofill the credentials
           fillForm(loginForm, { username: cred.username, password: cred.password });
@@ -750,7 +757,7 @@ async function handleFormSubmit(e: Event) {
       try {
         await sendToBackground(MessageType.SAVE_CREDENTIAL, credentials);
         console.log('ZeroVault: Credentials auto-saved');
-        
+
         // Show success notification
         const successMsg = document.createElement('div');
         successMsg.textContent = 'ZeroVault: Credentials saved automatically!';
@@ -911,7 +918,7 @@ function showSavePrompt(data: { url: string; username: string; password: string 
 
       if (action === 'save') {
         console.log('ZeroVault: User clicked save, data:', data);
-        
+
         // Check if vault is locked
         const vaultStatus = await sendToBackground<{ isLocked: boolean }>(MessageType.GET_VAULT_STATUS, {});
         console.log('ZeroVault: Vault status:', vaultStatus);

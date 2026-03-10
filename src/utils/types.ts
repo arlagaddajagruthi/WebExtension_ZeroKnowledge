@@ -1,3 +1,9 @@
+/**
+ * types.ts
+ * 
+ * Global TypeScript interface and type definitions for the ZeroVault extension.
+ * Defines the core data structures for credentials, vault state, and authentication.
+ */
 export interface Credential {
     id: string;
     name?: string;

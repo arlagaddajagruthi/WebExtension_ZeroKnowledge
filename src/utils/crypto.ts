@@ -1,7 +1,9 @@
-
 /**
- * Production-grade Crypto Utilities for ZeroVault
- * Uses Web Crypto API (SubtleCrypto)
+ * crypto.ts
+ * 
+ * Production-grade cryptographic utilities using the Web Crypto API (SubtleCrypto).
+ * It handles master key derivation via PBKDF2 and secure vault encryption/decryption 
+ * using AES-256-GCM.
  */
 
 // Generate a random salt
