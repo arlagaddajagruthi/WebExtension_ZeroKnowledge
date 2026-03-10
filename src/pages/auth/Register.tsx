@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ArrowLeft, Mail, Info } from 'lucide-react';
 import { Button, Input, Card, Label } from '../../components/ui';
 import { useAuthStore } from '../../store/authStore';
-import { authService, supabase } from '../../services/supabase';
+import { apiService } from '../../services/api.service';
 import { generateSalt, deriveMasterKey } from '../../utils/crypto';
-import { cn } from '../../utils/cn'; 
+import { cn } from '../../utils/cn';
 
 /**
  * Simplified Register Component
@@ -52,12 +52,14 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            const result = await authService.signUp(email, accountPassword);
-            if (!result.success) {
-                throw new Error((result.error as any)?.message || 'Registration failed');
-            }
+            // Call Render backend
+            const result = await apiService.register({ email, password: accountPassword });
 
-            setStep('master');
+            if (result.success) {
+                setStep('master');
+            } else {
+                throw new Error(result.error || 'Registration failed');
+            }
         } catch (err: any) {
             setError(err.message || 'Registration failed. Please try again.');
         } finally {
@@ -82,37 +84,24 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            // Generate salt and derive master key
+            // 1. Generate local salt and derive master key
             const salt = generateSalt();
             const hash = await deriveMasterKey(masterPassword, salt);
 
-            // Store in auth store
+            // 2. Store in local auth store (persisted Registration Info)
             setRegistered(true, hash, salt);
 
-            // Store in chrome.storage.local
+            // 3. Store in chrome.storage.local for persistent extension state
             await chrome.storage.local.set({
                 zerovault_master_salt: salt,
                 zerovault_master_password_hash: hash,
                 zerovault_initialized: true
             });
 
-            // Store in Supabase user metadata
-            try {
-                const sessionResult = await authService.getSession();
-                if (sessionResult.success && sessionResult.session?.user) {
-                    await supabase.auth.updateUser({
-                        data: {
-                            master_password_hash: hash,
-                            master_password_salt: salt
-                        }
-                    });
-                }
-            } catch (metadataError) {
-                console.warn('Failed to store master password metadata:', metadataError);
-            }
+            // 4. Note: We no longer store master_password_hash on Supabase via extension directly.
+            // This is managed by the backend during the registration or first sync if needed.
+            // However, the backend register endpoint just creates the user.
 
-            // Sign out to force proper login flow
-            await authService.signOut();
             navigate('/login');
         } catch (err) {
             console.error('Registration error:', err);

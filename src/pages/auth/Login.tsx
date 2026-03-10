@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Eye, EyeOff, AlertCircle, Mail } from 'lucide-react';
-import { Button, Input, Label, Card, cn } from '../../components/ui';
+import { Button, Input, Label, Card } from '../../components/ui';
 import { useAuthStore } from '../../store/authStore';
 import { useVaultStore } from '../../store/vaultStore';
 import { deriveMasterKey } from '../../utils/crypto';
 import { sendToBackground, MessageType } from '../../utils/messaging';
-import { authService, syncService } from '../../services/supabase';
+import { apiService } from '../../services/api.service';
 
 /**
  * Simplified Login Component
@@ -34,14 +34,10 @@ const Login = () => {
     // Check for existing session on mount
     useEffect(() => {
         const checkSession = async () => {
-            try {
-                const result = await authService.getSession();
-                if (result.success && result.session?.user) {
-                    setUserId(result.session.user.id);
-                    setStep('vault');
-                }
-            } catch (error) {
-                console.error('Session check failed:', error);
+            const { token, user } = useAuthStore.getState();
+            if (token && user) {
+                setUserId(user.id);
+                setStep('vault');
             }
         };
         checkSession();
@@ -59,15 +55,16 @@ const Login = () => {
                 return;
             }
 
-            const result = await authService.signIn(email, accountPassword);
-            if (!result.success) {
-                throw new Error((result.error as any)?.message || 'Login failed');
-            }
+            // Call Render backend
+            const result = await apiService.login({ email, password: accountPassword });
 
-            const user = result.data?.user;
-            if (user) {
-                setUserId(user.id);
+            if (result.accessToken && result.user) {
+                // Update store with token and user
+                setAuthenticated(false, undefined, result.accessToken, result.user);
+                setUserId(result.user.id);
                 setStep('vault');
+            } else {
+                throw new Error('Invalid response from server');
             }
         } catch (err: any) {
             setError(err.message || 'Login failed. Please try again.');
@@ -89,22 +86,19 @@ const Login = () => {
             }
 
             const hash = await deriveMasterKey(vaultPassword, vaultSalt);
-            
-            if (hash === masterPasswordHash) {
-                // Set authentication state
-                setAuthenticated(true, hash);
 
-                // Get user session and store user ID for sync
-                try {
-                    const sessionResult = await authService.getSession();
-                    if (sessionResult.success && sessionResult.session?.user) {
-                        await chrome.storage.local.set({
-                            zerovault_user_id: sessionResult.session.user.id
-                        });
-                        console.log('ZeroVault: User ID stored for sync');
-                    }
-                } catch (sessionError) {
-                    console.warn('ZeroVault: Failed to get user session:', sessionError);
+            if (hash === masterPasswordHash) {
+                // Set authentication state (with cached token/user)
+                const { token, user } = useAuthStore.getState();
+                setAuthenticated(true, hash, token || undefined, user || undefined);
+
+                // Store in chrome.storage for background sync service
+                if (userId && token) {
+                    await chrome.storage.local.set({
+                        zerovault_user_id: userId,
+                        zerovault_token: token
+                    });
+                    console.log('ZeroVault: Auth data stored for background sync');
                 }
 
                 // Update background script

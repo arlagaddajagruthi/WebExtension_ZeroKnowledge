@@ -16,8 +16,10 @@ import type { AuthState } from '../utils/types';
  */
 interface AuthStore extends AuthState {
     encryptionKey: string | null;
+    token: string | null;
+    user: { id: string; email: string } | null;
     setRegistered: (registered: boolean, passwordHash: string, salt: string) => void;
-    setAuthenticated: (authenticated: boolean, key?: string) => void;
+    setAuthenticated: (authenticated: boolean, key?: string, token?: string, user?: { id: string; email: string }) => void;
     logout: () => void;
     reset: () => void;
 }
@@ -41,6 +43,8 @@ export const useAuthStore = create<AuthStore>()(
             masterPasswordHash: undefined,
             vaultSalt: undefined,
             encryptionKey: null,
+            token: null,
+            user: null,
 
             setRegistered: (registered, passwordHash, salt) => set({
                 isRegistered: registered,
@@ -48,19 +52,23 @@ export const useAuthStore = create<AuthStore>()(
                 vaultSalt: salt
             }),
 
-            setAuthenticated: (authenticated, key) => set({
+            setAuthenticated: (authenticated, key, token, user) => set({
                 isAuthenticated: authenticated,
-                encryptionKey: key || null
+                encryptionKey: key || null,
+                token: token || null,
+                user: user || null
             }),
 
-            logout: () => set({ isAuthenticated: false, encryptionKey: null }),
+            logout: () => set({ isAuthenticated: false, encryptionKey: null, token: null, user: null }),
 
             reset: () => set({
                 isRegistered: false,
                 isAuthenticated: false,
                 masterPasswordHash: undefined,
                 vaultSalt: undefined,
-                encryptionKey: null
+                encryptionKey: null,
+                token: null,
+                user: null
             }),
         }),
         {
