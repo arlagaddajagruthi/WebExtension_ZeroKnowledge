@@ -12,13 +12,8 @@ import { saveCredentials } from '../services/storage';
 import { useAuthStore } from './authStore';
 import { syncService } from '../services/sync.service';
 
-/**
- * VaultStore Interface
- * 
- * Defines the shape of the vault state and actions.
- * Manages the user's credentials, lock status, and synchronization.
- */
 interface VaultStore extends VaultState {
+    vaultVersion: number;
     addCredential: (credential: Omit<Credential, 'id' | 'lastUpdated' | 'version'>) => Promise<void>;
     updateCredential: (id: string, updates: Partial<Credential>) => Promise<void>;
     deleteCredential: (id: string) => Promise<void>;
@@ -31,14 +26,6 @@ interface VaultStore extends VaultState {
 }
 
 // Helper to save to storage
-/**
- * Helper: persistToStorage
- * 
- * Encrypts and saves the current list of credentials to the underlying storage service.
- * Requires a valid encryption key from the AuthStore.
- * 
- * @param credentials - The list of credentials to save.
- */
 const persistToStorage = async (credentials: Credential[]) => {
     const key = useAuthStore.getState().encryptionKey;
     if (key) {
@@ -51,15 +38,6 @@ const persistToStorage = async (credentials: Credential[]) => {
 
 /**
  * useVaultStore Hook
- * 
- * A Zustand store for managing the vault's contents and state.
- * Handles CRUD operations for credentials, locking/unlocking, and synchronization.
- * 
- * Key Features:
- * - **Credential Management**: Add, update, delete credentials with automatic versioning.
- * - **Security**: Manages the `isLocked` state to protect the UI.
- * - **Synchronization**: Triggers sync operations via `syncService`.
- * - **Persistence**: Persists UI state (locked status, sync status) while delegating secure credential storage to `persistToStorage`.
  */
 export const useVaultStore = create<VaultStore>()(
     persist(
@@ -68,6 +46,7 @@ export const useVaultStore = create<VaultStore>()(
             credentials: [],
             syncStatus: 'synced',
             lastSynced: Date.now(),
+            vaultVersion: 0,
 
             addCredential: async (credential) => {
                 const newCredential = {
@@ -79,13 +58,10 @@ export const useVaultStore = create<VaultStore>()(
 
                 set((state) => ({
                     credentials: [...state.credentials, newCredential],
-                    syncStatus: 'pending' // Mark as pending sync
+                    syncStatus: 'pending'
                 }));
 
-                // Persist securely
                 await persistToStorage(get().credentials);
-
-                // Trigger sync (optimistic)
                 get().syncVault();
             },
 
@@ -111,16 +87,16 @@ export const useVaultStore = create<VaultStore>()(
                 get().syncVault();
             },
 
-            setSyncStatus: (status) => set({ syncStatus: status }),
+            setSyncStatus: (status: SyncStatus) => set({ syncStatus: status }),
 
-            setLocked: (locked) => set({ isLocked: locked }),
+            setLocked: (locked: boolean) => set({ isLocked: locked }),
 
-            clearVault: () => set({ credentials: [], lastSynced: undefined, syncStatus: 'synced' }),
+            clearVault: () => set({ credentials: [], lastSynced: undefined, syncStatus: 'synced', vaultVersion: 0 }),
 
-            setCredentials: (credentials) => set({ credentials }),
+            setCredentials: (credentials: Credential[]) => set({ credentials }),
 
             syncVault: async () => {
-                const { credentials, lastSynced, setSyncStatus } = get();
+                const { credentials, setSyncStatus, lastSynced } = get();
                 const encryptionKey = useAuthStore.getState().encryptionKey;
 
                 if (!encryptionKey) {
@@ -131,20 +107,32 @@ export const useVaultStore = create<VaultStore>()(
 
                 try {
                     setSyncStatus('syncing');
-                    const result = await syncService.syncChanges(credentials, lastSynced || 0, encryptionKey);
 
-                    if (result.status === 'synced' && result.timestamp) {
+                    console.log('VaultStore: Starting sync with Supabase...');
+                    const result = await syncService.syncChanges(
+                        credentials,
+                        lastSynced || 0,
+                        encryptionKey
+                    );
+
+                    if (result.status === 'synced' && result.serverItems) {
+                        console.log('VaultStore: Sync successful, updating state');
+
                         set({
-                            lastSynced: result.timestamp,
+                            credentials: result.serverItems,
+                            lastSynced: result.timestamp || Date.now(),
                             syncStatus: 'synced',
-                            // Optionally merge serverItems here for bidirectional sync
-                            credentials: result.serverItems || credentials,
+                            vaultVersion: (get().vaultVersion || 0) + 1 // Simple increment for local tracking
                         });
-                    } else if (result.status === 'error') {
+
+                        // Persist to local secure storage
+                        await persistToStorage(result.serverItems);
+                    } else {
+                        console.error('VaultStore: Sync failed with status:', result.status);
                         setSyncStatus('error');
                     }
                 } catch (error) {
-                    console.error('VaultStore: Sync failed', error);
+                    console.error('VaultStore: Sync exception:', error);
                     setSyncStatus('error');
                 }
             },
@@ -155,6 +143,7 @@ export const useVaultStore = create<VaultStore>()(
                     credentials: [],
                     syncStatus: 'synced',
                     lastSynced: Date.now(),
+                    vaultVersion: 0,
                 });
                 localStorage.removeItem('zerovault-vault-storage');
             }
@@ -165,8 +154,8 @@ export const useVaultStore = create<VaultStore>()(
             partialize: (state) => ({
                 isLocked: state.isLocked,
                 syncStatus: state.syncStatus,
-                lastSynced: state.lastSynced
-                // Exclude credentials from persistence (they go to chrome.storage.local)
+                lastSynced: state.lastSynced,
+                vaultVersion: state.vaultVersion
             }),
         }
     )

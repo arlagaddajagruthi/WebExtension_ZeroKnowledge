@@ -8,8 +8,7 @@
 import { MessageType, type Message } from '../../utils/messaging';
 import { matchURL } from '../../utils/urlMatcher';
 import { encryptVaultData, decryptVaultData, deriveMasterKey } from '../../utils/crypto';
-import { apiSyncService } from '../../services/apiSync.service';
-import { apiService } from '../../services/api.service';
+import { syncService } from '../../services/sync.service';
 
 console.log('ZeroVault: Background script initialized');
 
@@ -25,16 +24,16 @@ async function debugVaultStorage() {
             hasSalt: !!storage.zerovault_master_salt,
             hasHash: !!storage.zerovault_master_password_hash,
             isInitialized: !!storage.zerovault_initialized,
-            saltLength: storage.zerovault_master_salt?.length,
-            hashLength: storage.zerovault_master_password_hash?.length
+            saltLength: storage.zerovault_master_salt ? (storage.zerovault_master_salt as string).length : 0,
+            hashLength: storage.zerovault_master_password_hash ? (storage.zerovault_master_password_hash as string).length : 0
         });
     } catch (error) {
         console.error('ZeroVault: Debug - Error checking vault storage:', error);
     }
 }
 
-// Call debug function on startup
-debugVaultStorage();
+// Call debug function on startup (wrapped to prevent crashes)
+try { debugVaultStorage(); } catch (e) { console.warn('ZeroVault: Debug check skipped:', e); }
 
 interface StoredCredential {
     id: string;
@@ -50,13 +49,19 @@ let sessionKey: string | null = null;
 
 // Initialize session key from storage.session (if available)
 if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session) {
-    chrome.storage.session.get('sessionKey').then((result) => {
-        if (result.sessionKey) {
-            sessionKey = result.sessionKey as string;
-            console.log('ZeroVault: Restored session key from session storage');
-            startPolling();
-        }
-    });
+    try {
+        chrome.storage.session.get('sessionKey').then((result) => {
+            if (result.sessionKey) {
+                sessionKey = result.sessionKey as string;
+                console.log('ZeroVault: Restored session key from session storage');
+                startPolling();
+            }
+        }).catch((err: unknown) => {
+            console.warn('ZeroVault: Could not restore session key:', err);
+        });
+    } catch (err) {
+        console.warn('ZeroVault: storage.session not available:', err);
+    }
 }
 
 // Listen for extension installation
@@ -72,7 +77,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((
     message: Message,
     sender: chrome.runtime.MessageSender,
-    sendResponse: (response?: any) => void
+    sendResponse: (response?: unknown) => void
 ) => {
     console.log('ZeroVault: Background received message:', message.type);
 
@@ -179,67 +184,66 @@ async function saveEncryptedCredentials(credentials: StoredCredential[]) {
         const encrypted = await encryptVaultData(json, sessionKey);
         await chrome.storage.local.set({ vault_credentials: encrypted });
 
-        console.log('ZeroVault: Attempting to sync vault to Render backend...');
-        const syncResult = await apiSyncService.pushVault(credentials, sessionKey);
-        console.log('ZeroVault: Sync result:', syncResult);
+        try {
+            console.log('ZeroVault: Attempting to sync vault to Supabase...');
+            // Perform a bidirectional sync using Supabase
+            const syncResult = await syncService.syncChanges(
+                credentials as any,
+                Date.now() - 3600000, // Heuristic
+                sessionKey
+            );
 
-        if (syncResult.success) {
-            console.log('ZeroVault: Credentials synced to backend successfully');
-        } else {
-            console.warn('ZeroVault: Failed to sync credentials to backend:', syncResult.error);
+            if (syncResult.status === 'synced' && syncResult.serverItems) {
+                console.log('ZeroVault: Credentials synced to Supabase successfully');
+                const reEncrypted = await encryptVaultData(JSON.stringify(syncResult.serverItems), sessionKey);
+                await chrome.storage.local.set({ vault_credentials: reEncrypted });
+            } else {
+                console.warn('ZeroVault: Failed to sync credentials to Supabase:', syncResult.status);
+            }
+        } catch (syncError) {
+            console.warn('ZeroVault: Supabase sync failed, but local save succeeded:', syncError);
         }
-    } else {
-        console.log('ZeroVault: No user ID found, skipping sync');
-    }
-} catch (syncError) {
-    console.warn('ZeroVault: Credential sync failed, but local save succeeded:', syncError);
-}
-
     } catch (error) {
-    console.error('ZeroVault: Encryption failed:', error);
-}
-}
-
-// Helper function to get current user ID
-async function getCurrentUserId(): Promise<string | null> {
-    try {
-        const result = await chrome.storage.local.get('zerovault_user_id');
-        return result.zerovault_user_id || null;
-    } catch (error) {
-        console.error('ZeroVault: Error getting user ID:', error);
-        return null;
+        console.error('ZeroVault: Encryption failed:', error);
     }
 }
 
 // Sync vault from Backend to local storage
 async function syncVaultFromBackend(masterKey: string) {
     try {
-        console.log('ZeroVault: Syncing vault from Backend...');
+        console.log('ZeroVault: Syncing vault from Supabase...');
 
-        const result = await apiSyncService.fetchVault(masterKey);
-        if (!result.success || !result.credentials) {
-            console.log('ZeroVault: No vault found or fetch failed');
-            return;
+        const result = await chrome.storage.local.get(['vault_credentials', 'zerovault_last_sync_time']);
+        const encrypted = result.vault_credentials;
+        const lastSynced = result.zerovault_last_sync_time || 0;
+
+        let localItems: StoredCredential[] = [];
+        if (encrypted) {
+            const json = await decryptVaultData(encrypted as string, masterKey);
+            localItems = JSON.parse(json);
         }
 
-        // Save to local storage (encrypted as monolithic container)
-        const encrypted = await encryptVaultData(JSON.stringify(result.credentials), masterKey);
-        await chrome.storage.local.set({
-            vault_credentials: encrypted,
-            zerovault_last_sync_time: Date.now(),
-            zerovault_last_sync_version: result.version
-        });
+        const syncResult = await syncService.syncChanges(localItems as any, lastSynced as number, masterKey);
 
-        console.log(`ZeroVault: Synced ${result.credentials.length} credentials from Backend`);
+        if (syncResult.status === 'synced' && syncResult.serverItems) {
+            const reEncrypted = await encryptVaultData(JSON.stringify(syncResult.serverItems), masterKey);
+            await chrome.storage.local.set({
+                vault_credentials: reEncrypted,
+                zerovault_last_sync_time: syncResult.timestamp || Date.now()
+            });
+            console.log(`ZeroVault: Synced ${syncResult.serverItems.length} credentials from Supabase`);
+        } else {
+            console.log('ZeroVault: Supabase sync failed or no changes');
+        }
 
     } catch (error) {
-        console.error('ZeroVault: Failed to sync vault from Backend:', error);
+        console.error('ZeroVault: Failed to sync vault from Supabase:', error);
     }
 }
 
 async function handleRequestCredentials(
     data: { url: string },
-    sendResponse: (response: any) => void
+    sendResponse: (response: unknown) => void
 ) {
     const credentials = await getDecryptedCredentials();
     const matching = credentials.filter((c) => matchURL(c.url, data.url));
@@ -302,7 +306,7 @@ async function handleSaveCredential(data: { url: string; username: string; passw
             const tempKey = 'temp_' + Date.now();
 
             // Get existing credentials or create empty array
-            let credentials: any[] = [];
+            let credentials: StoredCredential[] = [];
             try {
                 const result = await chrome.storage.local.get('vault_credentials');
                 const encrypted = result.vault_credentials;
@@ -319,7 +323,7 @@ async function handleSaveCredential(data: { url: string; username: string; passw
                         }
                     }
                 }
-            } catch (error) {
+            } catch {
                 console.log('ZeroVault: No existing credentials found, starting fresh');
             }
 
@@ -405,7 +409,7 @@ async function handleUpdateCredential(data: { url: string; username: string; pas
     }
 }
 
-async function handleUnlockVault(data: { masterPassword: string }, sendResponse: (response?: any) => void) {
+async function handleUnlockVault(data: { masterPassword: string }, sendResponse: (response?: unknown) => void) {
     try {
         console.log('ZeroVault: Unlock request received');
 
@@ -430,7 +434,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
         const derivedKey = await deriveMasterKey(data.masterPassword, stored.zerovault_master_salt as string);
         console.log('ZeroVault: Key derived from provided password');
         console.log('ZeroVault: Provided password length:', data.masterPassword.length);
-        console.log('ZeroVault: Stored salt:', stored.zerovault_master_salt?.substring(0, 20) + '...');
+        console.log('ZeroVault: Stored salt:', (stored.zerovault_master_salt as string)?.substring(0, 20) + '...');
         console.log('ZeroVault: Derived key:', derivedKey?.substring(0, 20) + '...');
 
         // Check if stored hash is a JWK format (new) or simple hash (old)
@@ -490,7 +494,7 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
                 console.log('ZeroVault: Re-encrypting temporarily saved credentials');
                 try {
                     // Decrypt with temporary key
-                    const tempDecrypted = await decryptVaultData(storage.vault_credentials as string, storage.temp_encryption_key);
+                    const tempDecrypted = await decryptVaultData(storage.vault_credentials as string, storage.temp_encryption_key as string);
                     const tempCredentials = JSON.parse(tempDecrypted);
 
                     // Re-encrypt with master key
@@ -547,16 +551,16 @@ async function handleUnlockVault(data: { masterPassword: string }, sendResponse:
             console.log('ZeroVault: Invalid master password');
             sendResponse({ success: false, error: 'Invalid master password' });
         }
-    } catch (error: any) {
+    } catch (error) {
         console.error('ZeroVault: Unlock error:', error);
-        sendResponse({ success: false, error: error.message });
+        sendResponse({ success: false, error: (error as Error)?.message || 'Unknown error' });
     }
 }
 
 // Handler for verifying master password for autofill
 async function handleVerifyMasterPassword(
     data: { token: string },
-    sendResponse: (response?: any) => void
+    sendResponse: (response?: unknown) => void
 ) {
     try {
         // Simple verification - accept any non-empty token
@@ -566,16 +570,16 @@ async function handleVerifyMasterPassword(
         } else {
             sendResponse({ success: false, error: 'Invalid verification token' });
         }
-    } catch (e: any) {
+    } catch (e) {
         console.error('ZeroVault: Verify master password failed', e);
-        sendResponse({ success: false, error: e?.message || 'Unknown error' });
+        sendResponse({ success: false, error: (e as Error)?.message || 'Unknown error' });
     }
 }
 
 // Handler for verifying autofill (simple verification)
 async function handleVerifyAutofill(
     data: { token: string },
-    sendResponse: (response?: any) => void
+    sendResponse: (response?: unknown) => void
 ) {
     try {
         // Simple verification - accept any non-empty token
@@ -585,9 +589,9 @@ async function handleVerifyAutofill(
         } else {
             sendResponse({ success: false, error: 'Invalid verification token' });
         }
-    } catch (e: any) {
+    } catch (e) {
         console.error('ZeroVault: Verify autofill failed', e);
-        sendResponse({ success: false, error: e?.message || 'Unknown error' });
+        sendResponse({ success: false, error: (e as Error)?.message || 'Unknown error' });
     }
 }
 
@@ -597,7 +601,7 @@ async function handleBlacklistDomain(data: { domain: string }) {
 }
 
 // Auto-lock timer
-let autoLockTimer: any = null;
+let autoLockTimer: ReturnType<typeof setTimeout> | null = null;
 const DEFAULT_AUTO_LOCK_TIMEOUT = 15 * 60 * 1000; // 15 minutes
 
 async function getAutoLockTimeout(): Promise<number> {
@@ -606,7 +610,7 @@ async function getAutoLockTimeout(): Promise<number> {
         const timeout = result.autoLockTimeout as number | undefined;
         if (timeout === -1) return -1; // Never lock
         return ((timeout as number) || 15) * 60 * 1000; // Convert minutes to ms
-    } catch (e) {
+    } catch {
         return DEFAULT_AUTO_LOCK_TIMEOUT;
     }
 }
@@ -637,7 +641,7 @@ async function checkBlacklist(url: string): Promise<boolean> {
         const blacklist: string[] = (result[BLACKLIST_KEY] as string[]) || [];
         const domain = new URL(url).hostname.replace('www.', '');
         return blacklist.some(blacklisted => domain.includes(blacklisted));
-    } catch (e) {
+    } catch {
         return false;
     }
 }
@@ -656,29 +660,8 @@ async function addToBlacklist(domain: string): Promise<void> {
     }
 }
 
-async function removeFromBlacklist(domain: string): Promise<void> {
-    try {
-        const result = await chrome.storage.local.get(BLACKLIST_KEY);
-        const blacklist: string[] = (result[BLACKLIST_KEY] as string[]) || [];
-        const updated = blacklist.filter(d => d !== domain);
-        await chrome.storage.local.set({ [BLACKLIST_KEY]: updated });
-        console.log('ZeroVault: Removed from blacklist:', domain);
-    } catch (e) {
-        console.error('ZeroVault: Failed to remove from blacklist:', e);
-    }
-}
-
-async function getBlacklist(): Promise<string[]> {
-    try {
-        const result = await chrome.storage.local.get(BLACKLIST_KEY);
-        return (result[BLACKLIST_KEY] as string[]) || [];
-    } catch (e) {
-        return [];
-    }
-}
-
 // Polling mechanism for background synchronization
-let pollingInterval: any = null;
+let pollingInterval: ReturnType<typeof setInterval> | null = null;
 const POLLING_INTERVAL_MS = 30000; // 30 seconds
 
 async function startPolling() {

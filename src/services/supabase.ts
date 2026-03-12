@@ -16,7 +16,16 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     console.warn('ZeroVault: Supabase credentials not configured. Sync will not work.');
 }
 
-export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Validate that the key looks like a JWT before creating the client
+const isValidJwt = SUPABASE_ANON_KEY.startsWith('eyJ');
+if (!isValidJwt && SUPABASE_ANON_KEY) {
+    console.warn('ZeroVault: Supabase key is not a JWT. Direct Supabase sync is disabled. Auth uses Render backend.');
+}
+
+export const supabase: SupabaseClient = createClient(
+    SUPABASE_URL || 'https://placeholder.supabase.co',
+    isValidJwt ? SUPABASE_ANON_KEY : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsYWNlaG9sZGVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE2MTYxNjcwMDAsImV4cCI6MTkzMjYwMzAwMH0.placeholder'
+);
 
 // Test Supabase connection
 export const testSupabaseConnection = async () => {
@@ -42,34 +51,16 @@ export const authService = {
      * Sign up a new user with email and password
      */
     async signUp(email: string, password: string) {
-        try {
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-            });
-            if (error) throw error;
-            return { success: true, data };
-        } catch (error) {
-            console.error('Supabase signup failed:', error);
-            return { success: false, error };
-        }
+        console.error('ZeroVault: Direct Supabase signUp called. Use apiService instead.');
+        throw new Error('Direct authentication is disabled. Please use the server-mediated flow.');
     },
 
     /**
      * Sign in a user with email and password
      */
     async signIn(email: string, password: string) {
-        try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-            if (error) throw error;
-            return { success: true, data };
-        } catch (error) {
-            console.error('Supabase signin failed:', error);
-            return { success: false, error };
-        }
+        console.error('ZeroVault: Direct Supabase signIn called. Use apiService instead.');
+        throw new Error('Direct authentication is disabled. Please use the server-mediated flow.');
     },
 
     /**

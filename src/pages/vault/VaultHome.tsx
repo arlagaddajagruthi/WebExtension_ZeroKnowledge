@@ -21,7 +21,7 @@ import type { Credential } from '../../utils/types';
  */
 const VaultHome = () => {
     const navigate = useNavigate();
-    const { credentials, syncStatus, setCredentials } = useVaultStore();
+    const { credentials, syncStatus, setCredentials, syncVault } = useVaultStore();
     const { encryptionKey } = useAuthStore();
     const logout = useAuthStore((state) => state.logout);
     const [search, setSearch] = useState('');
@@ -37,10 +37,10 @@ const VaultHome = () => {
     // Function to load credentials from storage
     const loadCredentialsFromStorage = async () => {
         if (!encryptionKey) return;
-        
+
         try {
             console.log('VaultHome: Loading credentials with key:', encryptionKey?.substring(0, 20) + '...');
-            
+
             const { loadCredentials } = await import('../../services/storage');
             const creds = await loadCredentials(encryptionKey);
             console.log('VaultHome: Loaded credentials from storage:', creds.length);
@@ -51,16 +51,18 @@ const VaultHome = () => {
         }
     };
 
-    // Manual refresh function
+    // Manual refresh function (triggers cloud sync)
     const refreshCredentials = async () => {
         if (encryptionKey) {
             try {
-                await loadCredentialsFromStorage();
-                const creds = await (await import('../../services/storage')).loadCredentials(encryptionKey);
-                setToast({ message: `Refreshed ${creds.length} credentials`, type: 'success' });
+                setToast({ message: 'Syncing with cloud...', type: 'info' });
+                await syncVault();
+                // After syncVault, credentials in the store are updated, and stored locally.
+                // We don't need to call loadCredentialsFromStorage manually as syncVault updates the state.
+                setToast({ message: 'Vault synchronized', type: 'success' });
             } catch (error) {
-                console.error('VaultHome: Failed to refresh credentials:', error);
-                setToast({ message: 'Failed to refresh credentials', type: 'error' });
+                console.error('VaultHome: Failed to sync credentials:', error);
+                setToast({ message: 'Sync failed', type: 'error' });
             }
         } else {
             setToast({ message: 'Vault is locked', type: 'error' });

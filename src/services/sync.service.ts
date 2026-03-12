@@ -53,12 +53,18 @@ class SyncService {
         try {
             console.log('SyncService: Starting Supabase sync...');
 
-            // Get current user
-            const session = await supabase.auth.getSession();
-            const userId = session.data?.session?.user?.id;
+            // Get current user from AuthStore
+            const { user } = useAuthStore.getState();
+            let userId = user?.id;
+
+            // Fallback for background script context
+            if (!userId && typeof chrome !== 'undefined' && chrome.storage) {
+                const storage = await chrome.storage.local.get('zerovault_user_id');
+                userId = storage.zerovault_user_id as string;
+            }
 
             if (!userId) {
-                console.warn('SyncService: No authenticated user');
+                console.warn('SyncService: No authenticated user found (store or storage)');
                 return { status: 'error' };
             }
 

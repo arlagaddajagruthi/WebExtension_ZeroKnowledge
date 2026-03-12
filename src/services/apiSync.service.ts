@@ -5,66 +5,88 @@
  * Handles fetching, pushing, and polling for vault updates.
  */
 import { apiService } from './api.service';
-import { encryptVaultData, decryptVaultData } from '../utils/crypto';
+import { webAppCrypto } from '../utils/webAppCrypto';
+import type { Credential } from '../utils/types';
 
 export const apiSyncService = {
-    /**
-     * Fetch the complete vault from the server
-     */
-    async fetchVault(masterKey: string) {
+    async fetchVault(_masterKey?: string) {
         try {
             const data = await apiService.getVault();
-            if (!data || !data.encrypted_data) {
-                return { success: true, vault: null };
-            }
+            console.log('apiSyncService: Fetched vault data:', data);
 
-            // Decrypt the vault container
-            const decrypted = await decryptVaultData(data.encrypted_data, masterKey);
-            const credentials = JSON.parse(decrypted);
+            // The backend returns { userId, vaultVersion, encryptedEntries: [...] }
+            const entries = data.encryptedEntries || [];
+            const vaultVersion = data.vaultVersion || 0;
+
+            const mappedCredentials = await Promise.all(entries.map(async (entry: any) => {
+                // Decrypt the password using webAppCrypto for compatibility
+                let decryptedPassword = entry.password;
+                try {
+                    decryptedPassword = await webAppCrypto.decrypt(entry.password);
+                } catch (e) {
+                    console.warn(`apiSyncService: Failed to decrypt password for entry ${entry.id}, using raw value`);
+                }
+
+                return {
+                    id: String(entry.id),
+                    name: entry.title || 'Unnamed Item',
+                    url: entry.website || '',
+                    username: entry.username || '',
+                    password: decryptedPassword,
+                    notes: '',
+                    tags: entry.category ? [entry.category] : [],
+                    lastUpdated: entry.updatedAt ? new Date(entry.updatedAt).getTime() : Date.now(),
+                    version: entry.version || 1
+                } as Credential;
+            }));
 
             return {
                 success: true,
-                credentials,
-                version: data.version,
-                updatedAt: data.updated_at
+                credentials: mappedCredentials,
+                vaultVersion,
+                lastSyncedAt: data.lastSyncedAt
             };
         } catch (error: any) {
-            console.error('ZeroVault: Fetch vault failed:', error);
+            console.error('apiSyncService: Fetch failed:', error);
             return { success: false, error: error.message };
         }
     },
 
-    /**
-     * Push the current local vault to the server
-     */
-    async pushVault(credentials: any[], masterKey: string) {
+    async pushVault(credentials: Credential[], _masterKey: string, baseVersion: number = 0) {
         try {
-            // Encrypt the entire vault
-            const json = JSON.stringify(credentials);
-            const encryptedData = await encryptVaultData(json, masterKey);
+            console.log(`apiSyncService: Pushing vault with baseVersion ${baseVersion}...`);
+            // Map extension credentials back to backend format
+            const added = await Promise.all(credentials.map(async (c) => ({
+                id: Number(c.id) || undefined, // Send as Number if possible, let backend handle new ones
+                title: c.name,
+                website: c.url,
+                username: c.username,
+                password: await webAppCrypto.encrypt(c.password),
+                isFavorite: false,
+                updatedAt: new Date(c.lastUpdated).toISOString()
+            })));
 
-            // Sync with backend (the backend handles versioning)
+            // For now, we use a 'full sync' approach by sending everything as 'added/updated'
+            // In a more complex setup, we'd use deltas.
             const result = await apiService.syncVault({
-                encrypted_data: encryptedData,
-                entry_count: credentials.length
+                baseVersion: baseVersion,
+                added,
+                updated: [],
+                deleted: []
             });
 
             return {
                 success: true,
-                version: result.version,
-                updatedAt: result.updatedAt
+                vaultVersion: result.vaultVersion,
+                entries: result.entries
             };
         } catch (error: any) {
-            console.error('ZeroVault: Push vault failed:', error);
-            return { success: false, error: error.message };
+            console.error('apiSyncService: Push vault failed:', error);
+            throw error; // Rethrow so it can be handled by the store
         }
     },
 
-    /**
-     * Create/Update/Delete individual entries if the backend supports it (granular sync)
-     * For now, we reuse pushVault for full sync, but we can add more granular ones if needed.
-     */
-    async createEntry(entry: any, masterKey: string) {
+    async createEntry(entry: any) {
         return apiService.createEntry(entry);
     },
 

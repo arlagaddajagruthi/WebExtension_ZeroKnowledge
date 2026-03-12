@@ -1,0 +1,5 @@
+src/extension/background/index.ts(191,7): error TS1472: 'catch' or 'finally' expected.
+src/extension/background/index.ts(194,3): error TS1005: 'try' expected.
+src/extension/background/index.ts(198,5): error TS1128: Declaration or statement expected.
+src/extension/background/index.ts(198,7): error TS1005: 'try' expected.
+src/extension/background/index.ts(201,1): error TS1128: Declaration or statement expected.

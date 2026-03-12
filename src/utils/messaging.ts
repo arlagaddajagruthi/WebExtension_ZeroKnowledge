@@ -7,6 +7,9 @@
  */
 
 export const MessageType = {
+    // Session management
+    SET_SESSION_KEY: 'SET_SESSION_KEY',
+
     // Vault operations
     GET_VAULT_STATUS: 'GET_VAULT_STATUS',
     UNLOCK_VAULT: 'UNLOCK_VAULT',
@@ -19,8 +22,10 @@ export const MessageType = {
     FORM_DETECTED: 'FORM_DETECTED',
     FORM_SUBMITTED: 'FORM_SUBMITTED',
 
-    // Save prompt (handle redirects)
+    // Prompts
     GET_PENDING_SAVE_PROMPT: 'GET_PENDING_SAVE_PROMPT',
+    SHOW_UPDATE_PROMPT: 'SHOW_UPDATE_PROMPT',
+    SHOW_SAVE_PROMPT: 'SHOW_SAVE_PROMPT',
 
     // OTP for autofill
     REQUEST_AUTOFILL_OTP: 'REQUEST_AUTOFILL_OTP',
@@ -34,6 +39,9 @@ export const MessageType = {
     REQUEST_UNLOCK_FOR_SAVE: 'REQUEST_UNLOCK_FOR_SAVE',
     UNLOCK_AND_SAVE_CREDENTIAL: 'UNLOCK_AND_SAVE_CREDENTIAL',
     GET_PENDING_UNLOCK_SAVE: 'GET_PENDING_UNLOCK_SAVE',
+
+    // Domain Blacklist
+    BLACKLIST_DOMAIN: 'BLACKLIST_DOMAIN',
 } as const;
 
 export type MessageTypeValue = typeof MessageType[keyof typeof MessageType];

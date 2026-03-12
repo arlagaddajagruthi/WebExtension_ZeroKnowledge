@@ -73,7 +73,18 @@ export const useAuthStore = create<AuthStore>()(
         }),
         {
             name: 'zerovault-auth-storage',
-            storage: createJSONStorage(() => localStorage),
+            storage: createJSONStorage(() => ({
+                getItem: async (name: string) => {
+                    const result = await chrome.storage.local.get(name);
+                    return (result[name] as string) || null;
+                },
+                setItem: async (name: string, value: string) => {
+                    await chrome.storage.local.set({ [name]: value });
+                },
+                removeItem: async (name: string) => {
+                    await chrome.storage.local.remove(name);
+                },
+            })),
             partialize: (state) => ({
                 isRegistered: state.isRegistered,
                 masterPasswordHash: state.masterPasswordHash,

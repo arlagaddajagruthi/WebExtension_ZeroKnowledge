@@ -6,7 +6,7 @@
  */
 import { useAuthStore } from '../store/authStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://secure-password-backend-dbfu.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 /**
  * Base fetch wrapper with auth header
@@ -44,6 +44,12 @@ export const apiService = {
 
         if (!response.ok) {
             const error = await response.json().catch(() => ({ error: 'Login failed' }));
+
+            // Allow MFA transitions even on 401/403 if requiresMFA is true
+            if (error.requiresMFA) {
+                return error;
+            }
+
             throw new Error(error.error || 'Login failed');
         }
 
@@ -60,6 +66,36 @@ export const apiService = {
         if (!response.ok) {
             const error = await response.json().catch(() => ({ error: 'Registration failed' }));
             throw new Error(error.error || 'Registration failed');
+        }
+
+        return response.json();
+    },
+
+    async verifyMfa(userId: string, otp: string) {
+        const response = await fetch(`${API_BASE_URL}/auth/verify-mfa`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, otp }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Verification failed' }));
+            throw new Error(error.error || 'Verification failed');
+        }
+
+        return response.json();
+    },
+
+    async resendMfa(userId: string) {
+        const response = await fetch(`${API_BASE_URL}/auth/resend-mfa`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Failed to resend code' }));
+            throw new Error(error.error || 'Failed to resend code');
         }
 
         return response.json();

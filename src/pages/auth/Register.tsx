@@ -8,7 +8,7 @@ import { generateSalt, deriveMasterKey } from '../../utils/crypto';
 import { cn } from '../../utils/cn';
 
 /**
- * Simplified Register Component
+ * Register Component
  * 
  * Clean two-step process:
  * 1. Account Setup: Email + password with Supabase
@@ -28,7 +28,9 @@ const Register = () => {
     const [showMasterPassword, setShowMasterPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
-    const [step, setStep] = useState<'account' | 'master'>('account');
+    const [step, setStep] = useState<'account' | 'mfa' | 'master'>('account');
+    const [userId, setUserId] = useState<string | null>(null);
+    const [otp, setOtp] = useState('');
 
     // Handle account setup
     const handleAccountSetup = async (e: React.FormEvent) => {
@@ -52,16 +54,59 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            // Call Render backend
+            // Call App Server for registration
             const result = await apiService.register({ email, password: accountPassword });
 
-            if (result.success) {
-                setStep('master');
+            if (result.requiresMFA) {
+                setUserId(result.userId);
+                setStep('mfa');
             } else {
-                throw new Error(result.error || 'Registration failed');
+                throw new Error('Registration failed. Please try again.');
             }
         } catch (err: any) {
             setError(err.message || 'Registration failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Handle MFA Verification
+    const handleMfaVerify = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setIsLoading(true);
+
+        try {
+            if (!userId || !otp) {
+                setError('Verification code is required.');
+                return;
+            }
+
+            const result = await apiService.verifyMfa(userId, otp);
+
+            if (result.token) {
+                // Store token temporarily or set in store
+                // For registration, we move to master password step next
+                setStep('master');
+            } else {
+                throw new Error('Verification failed.');
+            }
+        } catch (err: any) {
+            setError(err.message || 'Verification failed. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleResendMfa = async () => {
+        if (!userId) return;
+        setIsLoading(true);
+        try {
+            await apiService.resendMfa(userId);
+            setError('New code sent!');
+            setTimeout(() => setError(''), 3000);
+        } catch (err: any) {
+            setError(err.message || 'Failed to resend code');
         } finally {
             setIsLoading(false);
         }
@@ -84,23 +129,15 @@ const Register = () => {
 
         setIsLoading(true);
         try {
-            // 1. Generate local salt and derive master key
             const salt = generateSalt();
             const hash = await deriveMasterKey(masterPassword, salt);
-
-            // 2. Store in local auth store (persisted Registration Info)
             setRegistered(true, hash, salt);
 
-            // 3. Store in chrome.storage.local for persistent extension state
             await chrome.storage.local.set({
                 zerovault_master_salt: salt,
                 zerovault_master_password_hash: hash,
                 zerovault_initialized: true
             });
-
-            // 4. Note: We no longer store master_password_hash on Supabase via extension directly.
-            // This is managed by the backend during the registration or first sync if needed.
-            // However, the backend register endpoint just creates the user.
 
             navigate('/login');
         } catch (err) {
@@ -111,7 +148,6 @@ const Register = () => {
         }
     };
 
-    // Password strength indicator
     const getPasswordStrength = (pwd: string) => {
         if (!pwd) return 0;
         let score = 0;
@@ -132,7 +168,10 @@ const Register = () => {
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => step === 'master' ? setStep('account') : navigate(-1)}
+                    onClick={() => {
+                        if (step === 'master') setStep('account');
+                        else navigate(-1);
+                    }}
                     className="p-0 h-8 w-8"
                 >
                     <ArrowLeft className="w-4 h-4" />
@@ -143,17 +182,16 @@ const Register = () => {
             </div>
 
             <div className="flex gap-2 mb-2">
-                <div className={cn("h-1.5 flex-1 rounded-full", step === 'account' || step === 'master' ? "bg-primary" : "bg-muted")} />
+                <div className={cn("h-1.5 flex-1 rounded-full", "bg-primary")} />
+                <div className={cn("h-1.5 flex-1 rounded-full", step === 'mfa' || step === 'master' ? "bg-primary" : "bg-muted")} />
                 <div className={cn("h-1.5 flex-1 rounded-full", step === 'master' ? "bg-primary" : "bg-muted")} />
             </div>
 
-            {step === 'account' ? (
+            {step === 'account' && (
                 <Card className="p-4 space-y-4">
                     <div className="flex items-start space-x-3 text-sm text-muted-foreground bg-primary/5 p-3 rounded-md">
                         <Mail className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                        <p>
-                            Create a secure account to enable cloud sync across your devices.
-                        </p>
+                        <p>Create a secure account to enable cloud sync across your devices.</p>
                     </div>
 
                     <form onSubmit={handleAccountSetup} className="space-y-4">
@@ -205,17 +243,57 @@ const Register = () => {
                         {error && <p className="text-xs text-destructive font-medium">{error}</p>}
 
                         <Button type="submit" className="w-full" disabled={isLoading}>
-                            {isLoading ? 'Creating Account...' : 'Continue to Master Password'}
+                            {isLoading ? 'Creating Account...' : 'Continue'}
                         </Button>
                     </form>
                 </Card>
-            ) : (
+            )}
+
+            {step === 'mfa' && (
+                <Card className="p-4 space-y-4">
+                    <div className="flex items-start space-x-3 text-sm text-muted-foreground bg-primary/5 p-3 rounded-md">
+                        <Mail className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                        <p>We've sent a verification code to your email. Please enter it to verify your account.</p>
+                    </div>
+
+                    <form onSubmit={handleMfaVerify} className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="otp">Verification Code</Label>
+                            <Input
+                                id="otp"
+                                type="text"
+                                placeholder="6-digit code"
+                                value={otp}
+                                onChange={(e) => setOtp(e.target.value)}
+                                required
+                                maxLength={6}
+                                autoFocus
+                            />
+                        </div>
+
+                        {error && <p className="text-xs text-destructive font-medium">{error}</p>}
+
+                        <Button type="submit" className="w-full" disabled={isLoading}>
+                            {isLoading ? 'Verifying...' : 'Verify'}
+                        </Button>
+                    </form>
+                    <div className="text-center">
+                        <button
+                            onClick={handleResendMfa}
+                            disabled={isLoading}
+                            className="text-xs text-primary hover:underline"
+                        >
+                            Didn't get a code? Resend
+                        </button>
+                    </div>
+                </Card>
+            )}
+
+            {step === 'master' && (
                 <Card className="p-4 space-y-4">
                     <div className="flex items-start space-x-3 text-sm text-muted-foreground bg-primary/5 p-3 rounded-md">
                         <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                        <p>
-                            Your master password is the only key to your vault encryption. If you lose it, your data cannot be recovered.
-                        </p>
+                        <p>Your master password is the only key to your vault encryption. If you lose it, your data cannot be recovered.</p>
                     </div>
 
                     <form onSubmit={handleMasterPasswordSetup} className="space-y-4">
